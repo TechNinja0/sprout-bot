@@ -57,7 +57,7 @@ class DiagnosticHardwareTest {
                 touch(0);Thread.sleep(2150);touch(1)
                 assertTrue(device.wait(Until.hasObject(By.text("家长管理")),5000))
                 device.findObject(By.clazz("android.widget.EditText")).text="258369";device.findObject(By.text("进入")).click()
-                assertTrue(device.wait(Until.hasObject(By.text("机器人管理")),5000))
+                assertTrue(device.wait(Until.hasObject(By.text("机器人管理")),5000));device.findObject(By.text("检查与调试")).click();Thread.sleep(400)
                 for(i in 0..6) { if(device.hasObject(By.text("开始本机自检")))break;device.findObject(By.scrollable(true))?.scroll(Direction.DOWN,0.7f) }
                 assertNotNull(device.findObject(By.text("开始本机自检")));device.findObject(By.text("开始本机自检")).click()
                 waitFor("自检启动") { robot.selfCheckRunning }

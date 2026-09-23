@@ -48,15 +48,20 @@ class MainActivity:ComponentActivity() {
     private var foreground=false
     private var robotManagement=false
     private var preview:MediaPlayer?=null
+    private var themeMode by mutableStateOf("dark")
+    fun stopPreview(){preview?.release();preview=null;File(cacheDir,"preview.audio").delete()}
+    private fun chooseTheme(value:String){themeMode=if(value=="light")"light" else "dark";getSharedPreferences("appearance",MODE_PRIVATE).edit().putString("theme",themeMode).apply()}
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState);vault=Vault(this)
-        setContent { MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFF8DE3D0),background=Color(0xFF101C20),surface=Color(0xFF192A30))) { Root() } }
+        themeMode=getSharedPreferences("appearance",MODE_PRIVATE).getString("theme","dark") ?: "dark"
+        setContent { RobotTheme(themeMode) { SideEffect { WindowCompat.getInsetsController(window,window.decorView).apply { isAppearanceLightStatusBars=themeMode=="light";isAppearanceLightNavigationBars=themeMode=="light" };@Suppress("DEPRECATION") run { window.statusBarColor=if(themeMode=="light")0xFFF5F7F5.toInt() else 0xFF101F23.toInt();window.navigationBarColor=window.statusBarColor } };Root() } }
     }
     override fun onStart() { super.onStart();foreground=true;if(!robotManagement)runtime?.resumeForeground() }
-    override fun onStop() { foreground=false;runtime?.background();preview?.release();preview=null;super.onStop() }
+    override fun onStop() { foreground=false;runtime?.background();stopPreview();super.onStop() }
     override fun onDestroy() { runtime?.close();super.onDestroy() }
     private fun playPreview(data:ByteArray,volume:Float=1f) {
-        preview?.release();val file=File(cacheDir,"preview.audio");file.writeBytes(data)
+        if(!foreground)return
+        stopPreview();val file=File(cacheDir,"preview.audio");file.writeBytes(data)
         preview=MediaPlayer().apply { setDataSource(file.absolutePath);setOnPreparedListener { it.setVolume(volume.coerceIn(0f,1f),volume.coerceIn(0f,1f));it.start() };setOnCompletionListener { it.release();preview=null;file.delete() };prepareAsync() }
     }
     @Composable private fun Root() {
@@ -95,6 +100,8 @@ class MainActivity:ComponentActivity() {
     @Composable private fun Setup(done:(String)->Unit) {
         val scope=rememberCoroutineScope();var material by remember { mutableStateOf("") };var role by remember { mutableStateOf("robot") }
         var pin by remember { mutableStateOf("") };var message by remember { mutableStateOf("") };var busy by remember { mutableStateOf(false) }
+        var repeatPin by remember { mutableStateOf("") }
+        val firstPermissions=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){done("robot")}
         var pending by remember { mutableStateOf<JSONObject?>(null) };var activeConnection by remember { mutableStateOf<JSONObject?>(null) }
         var scanning by remember { mutableStateOf(false) }
         val import=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null)runCatching { contentResolver.openInputStream(uri)!!.use { material=readLimited(it,16384).decodeToString() } }.onFailure { message="连接材料读取失败" } }
@@ -117,7 +124,7 @@ class MainActivity:ComponentActivity() {
                 else cameraPermission.launch(Manifest.permission.CAMERA)
             };Action("导入连接文件",enabled=pending==null && !busy) { import.launch(arrayOf("application/json","text/plain","application/octet-stream")) } }
             OutlinedTextField(material,{ material=it },label={ Text("连接材料 JSON") },modifier=Modifier.fillMaxWidth(),minLines=4,maxLines=7)
-            if(role=="robot")OutlinedTextField(pin,{ pin=it },label={ Text("设置6—12位管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            if(role=="robot"){OutlinedTextField(pin,{ pin=it },label={ Text("设置6—12位管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation());OutlinedTextField(repeatPin,{ repeatPin=it },label={ Text("再次输入管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation());Text("麦克风用于唤醒和对话；相机只在允许的会话内使用。连接后申请权限，可稍后在管理页补充。",fontSize=12.sp)}
             Text("连接文件两分钟有效，过期请重新生成。手机与家庭电脑须在同一局域网。家长身份不能使用电脑生成的机器人连接文件。",fontSize=13.sp)
             Action(if(pending==null)"验证并连接" else "检查机器人确认结果",enabled=!busy) {
                 scope.launch {
@@ -126,11 +133,11 @@ class MainActivity:ComponentActivity() {
                         if(pending==null) {
                             val c=parseConnectionMaterial(material)
                             val api=Api(c)
-                            if(role=="robot")require(pin.matches(Regex("[0-9]{6,12}"))) { "请设置6—12位数字 PIN" }
+                            if(role=="robot")require(pin.matches(Regex("[0-9]{6,12}")) && pin==repeatPin) { "请设置6—12位数字 PIN，并确保两次输入一致" }
                             val result=withContext(Dispatchers.IO) { api.checkIdentity();if(role=="robot" && c.optString("purpose")=="recover")api.json("/v1/recover","POST",JSONObject().put("invite",c.getString("invite"))) else api.json(if(role=="robot")"/v1/register" else "/v1/pairing/claim","POST",JSONObject().put("invite",c.getString("invite")).put("name",if(role=="robot")"家庭小伙伴" else "家长手机")) }
                             if(role=="robot") {
                                 c.put("token",result.getString("token")).put("deviceId",result.getString("deviceId")).remove("invite")
-                                vault.save("robot",c);vault.setPin(pin);done("robot")
+                                vault.save("robot",c);vault.setPin(pin);firstPermissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO,Manifest.permission.CAMERA))
                             } else { c.remove("invite");c.put("token",UUID.randomUUID().toString()+UUID.randomUUID());pending=result;activeConnection=c;message="请在机器人管理页确认配对，然后点击检查结果" }
                         } else {
                             val c=activeConnection!!;val p=pending!!
@@ -173,13 +180,41 @@ class MainActivity:ComponentActivity() {
                 showPairing=false
                 run { requests=withContext(Dispatchers.IO) { api.array("/v1/pairing/pending") } }
             })
-        Page("机器人管理",message,false) {
-            Action("返回小伙伴",action=close)
-            Text("${if(robot.online)"家庭服务在线" else "家庭服务离线"} · 配置版本 ${robot.version}")
-            Text(robot.diagnostic)
-            Text("最近唤醒：${robot.lastWakeSource} · 声音反馈：${robot.lastFeedbackResult}")
-            Text("最近相机提示：${robot.lastCameraFeedback}")
-            Text("唤醒词：${robot.config.optString("nickname","小伙伴")}。可说“停止”“继续”“下一页”“上一页”。轻点脸部可叫醒，轻抚额头或揉脸可互动；双击脸部可暂停。")
+        var page by remember { mutableStateOf("首页") }
+        var chat by remember { mutableStateOf(false) }
+        fun go(name:String){stopPreview();message="";page=name}
+        BackHandler { if(chat)chat=false else if(page=="首页")close() else go("首页") }
+        if(chat){DebugChat(robot.connection,back={chat=false},play={playPreview(it)});return}
+        if(page=="主题颜色"){AppearancePage(themeMode,::chooseTheme){go("设置")};return}
+        if(page in listOf("唤醒与互动","AI 提示词","声音","隐私与权限")){DeviceSettingsScreen(robot.connection,true,page,{go("设置")},{playPreview(it)});return}
+        Page(if(page=="首页")"机器人管理" else page,message,creatingPairing,onBack={if(page=="首页")close() else go("首页")}) {
+            when(page){
+                "首页" -> {
+                    ConnectionCard(robot.online,"配置版本 ${robot.version}"){go("服务器连接")}
+                    Text("管理中已暂停采集",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
+                    SectionLink("家长与配对","展示二维码，家长手机直接扫码"){go("家长与配对")}
+                    SectionLink("检查与调试","设备自检 · 文字与语音会话"){go("检查与调试")}
+                    SectionLink("使用教程","唤醒、对话、读书与常用手势"){go("使用教程")}
+                    SectionLink("离线内容","播放完整下载的故事与儿歌"){go("离线内容")}
+                    SectionLink("小伙伴设置","主题、唤醒词、提示词与声音"){go("设置")}
+                }
+                "服务器连接" -> {
+                    ConnectionCard(robot.online,"服务器连接与模型能力分别检查")
+                    Text(robot.connection.optString("address"));Text("配置版本 ${robot.version}")
+                    Text("当前生效唤醒词：${robot.appliedWakeName}")
+                    if(robot.appliedWakeName!=robot.config.optString("nickname"))Text("待生效：${robot.config.optString("nickname")}，等待本轮互动结束")
+                    Text(robot.diagnostic);DiagnosticsPanel(robot.connection)
+                    Action("重新检查连接"){run{withContext(Dispatchers.IO){api.checkIdentity()};message="服务器身份验证通过"}}
+                }
+                "设置" -> {
+                    SectionLink("主题颜色",if(themeMode=="light")"浅色" else "深色"){go("主题颜色")}
+                    for(name in listOf("唤醒与互动","AI 提示词","声音","隐私与权限","修改 PIN"))SectionLink(name){go(name)}
+                    SectionLink("服务器连接","状态与服务能力"){go("服务器连接")}
+                    SectionLink("切换身份","返回本机已有授权身份"){switch("setup")}
+                }
+                "使用教程" -> RobotTutorial()
+                "检查与调试" -> {
+                    SectionLink("调试","发送文字或语音，查看并回放实际回复"){chat=true}
             Action("检查麦克风与相机权限") { permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO,Manifest.permission.CAMERA)) }
             Action("测试唤醒") { close();robot.wake() }
             Text("本机自检会临时收音3秒、向家庭服务器识别、取一帧画面并播放半秒提示音；不会保存录音、图片和识别文字。")
@@ -190,6 +225,8 @@ class MainActivity:ComponentActivity() {
             robot.selfCheckReport?.let { HardwareReportSummary(it) }
             DiagnosticsPanel(robot.connection,robot.selfCheckReport)
             DisposableEffect(robot) { onDispose { robot.cancelSelfCheck() } }
+                }
+                "家长与配对" -> {
             Action(if(creatingPairing)"正在生成二维码…" else "生成家长配对材料",enabled=!creatingPairing) { generatePairing() }
             if(pairing.isNotEmpty()) { Action("显示配对二维码") { showPairing=true };Action("保存配对文件（备用）") { export.launch("family-pairing.json") } }
             Action("刷新待确认配对与设备") { run { withContext(Dispatchers.IO) { requests=api.array("/v1/pairing/pending");devices=api.array("/v1/devices") } } }
@@ -197,12 +234,16 @@ class MainActivity:ComponentActivity() {
                 Row { for(approved in listOf(true,false))Action(if(approved)"亲自确认" else "拒绝") { run { withContext(Dispatchers.IO) { api.json("/v1/pairing/${p.getString("id")}/decision","POST",JSONObject().put("approved",approved)) };message="配对已处理" } } }
             }
             for(i in 0 until devices.length()) { val d=devices.getJSONObject(i);if(d.getString("role")=="parent" && d.optInt("revoked")==0)Action("撤销 ${d.getString("name")}") { run { withContext(Dispatchers.IO) { api.json("/v1/devices/${d.getString("id")}","DELETE") };message="已撤销家长凭据" } } }
+                }
+                "修改 PIN" -> {
             OutlinedTextField(pin,{ pin=it },label={ Text("新的管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
             Action("修改 PIN") { run { vault.setPin(pin);pin="";message="PIN 已更新" } }
-            Text("完整离线资源")
-            for((rid,title) in robot.offlineItems())Action("播放：$title") { close();robot.playResource(rid) }
-            Action("切换身份 / 连接其他家庭服务") { switch("setup") }
-            Text("相机仅会话内使用；后台会停止播放并释放麦克风。忘记 PIN 时，使用电脑管理员恢复流程重新登记。",fontSize=13.sp)
+                }
+                "离线内容" -> {
+                    if(robot.offlineItems().isEmpty())Text("暂无完整下载内容，请在家长资源库安排下载")
+                    for((rid,title) in robot.offlineItems())SectionLink(title,"已完整下载"){close();robot.playResource(rid)}
+                }
+            }
         }
     }
     @Composable private fun Parent(connection:JSONObject,disconnect:()->Unit) {
@@ -213,9 +254,13 @@ class MainActivity:ComponentActivity() {
         var data by remember { mutableStateOf(JSONArray()) };var models by remember { mutableStateOf(JSONObject()) }
         var summary by remember { mutableStateOf(JSONObject()) }
         var refreshVersion by remember { mutableIntStateOf(0) }
+        var editing by remember { mutableStateOf(false) }
+        var savedConfig by remember{mutableStateOf("")};var pendingTab by remember{mutableStateOf<String?>(null)};var reloadParent by remember{mutableStateOf(false)};var revokeParent by remember{mutableStateOf(false)}
         val rid=connection.getString("robotId")
-        fun selectTab(name:String) { refreshVersion++;data=JSONArray();summary=JSONObject();config=JSONObject();message="";selected=null;tab=name }
-        fun run(action:suspend ()->Unit) { scope.launch { busy=true;try { action() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "请求失败" } finally { busy=false } } }
+        fun performSelect(name:String) { stopPreview();refreshVersion++;data=JSONArray();summary=JSONObject();config=JSONObject();message="";selected=null;tab=name }
+        fun dirty()=config.length()>0 && savedConfig.isNotEmpty() && config.toString()!=savedConfig
+        fun selectTab(name:String){if(busy)return;if(dirty())pendingTab=name else performSelect(name)}
+        fun run(action:suspend ()->Unit) { if(busy)return;scope.launch { busy=true;try { action() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "请求失败" } finally { busy=false } } }
         suspend fun refresh() {
             val targetTab=tab;val requestVersion=++refreshVersion
             val result=withContext(Dispatchers.IO) { JSONObject().apply { when(targetTab) {
@@ -223,7 +268,7 @@ class MainActivity:ComponentActivity() {
                 "记忆" -> { put("data",api.array("/v1/memories"));put("summary",JSONObject().put("memoryActions",api.array("/v1/memory-actions"))) }
                 "清单" -> { put("data",api.array("/v1/playlists"));put("items",api.json("/v1/resources").getJSONArray("items")) }
                 "摘要" -> { val value=api.json("/v1/usage/summary");put("summary",value);put("data",value.getJSONArray("days")) }
-                "首页","维护" -> { put("data",api.array("/v1/devices"));put("models",api.json("/v1/models")) }
+                "首页","维护","备份","绑定","离线内容" -> { put("data",api.array("/v1/devices"));put("models",api.json("/v1/models")) }
                 else -> { put("configuration",api.json("/v1/robots/$rid/config"));if(targetTab=="英语计划")put("data",api.array("/v1/playlists"));if(targetTab=="声音")put("models",api.json("/v1/models")) }
             } } }
             if(targetTab!=tab || requestVersion!=refreshVersion)return
@@ -231,10 +276,19 @@ class MainActivity:ComponentActivity() {
             result.optJSONArray("items")?.let { items=it }
             result.optJSONObject("summary")?.let { summary=it }
             result.optJSONObject("models")?.let { models=it }
-            result.optJSONObject("configuration")?.let { config=it.getJSONObject("config");version=it.getInt("version") }
+            result.optJSONObject("configuration")?.let { config=it.getJSONObject("config");version=it.getInt("version");savedConfig=config.toString() }
             }
-        LaunchedEffect(tab,selected) { if(selected==null) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
-        if(selected!=null) { ResourceEditor(api,selected!!,rid) { selected=null };return }
+        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","唤醒与互动","AI 提示词")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
+        pendingTab?.let{target->AlertDialog(onDismissRequest={pendingTab=null},title={Text("有未保存修改")},text={Text("离开会放弃当前修改。可以继续编辑并保存后再离开。")},confirmButton={TextButton(onClick={pendingTab=null;performSelect(target)}){Text("放弃并离开")}},dismissButton={TextButton(onClick={pendingTab=null}){Text("继续编辑")}})}
+        if(reloadParent)AlertDialog(onDismissRequest={reloadParent=false},title={Text("重新读取设置？")},text={Text("当前未保存的修改将被已生效配置替换。")},confirmButton={TextButton(onClick={reloadParent=false;run{refresh()}}){Text("重新读取")}},dismissButton={TextButton(onClick={reloadParent=false}){Text("保留修改")}})
+        if(revokeParent)AlertDialog(onDismissRequest={revokeParent=false},title={Text("解除本手机绑定？")},text={Text("解除后需要在机器人上重新生成配对二维码才能恢复管理。")},confirmButton={TextButton(onClick={revokeParent=false;run{withContext(Dispatchers.IO){api.json("/v1/devices/${connection.getString("deviceId")}","DELETE")};vault.remove("parent");disconnect()}}){Text("解除绑定")}},dismissButton={TextButton(onClick={revokeParent=false}){Text("取消")}})
+        if(selected!=null) { if(editing)ResourceEditor(api,selected!!,rid) { editing=false } else ResourceOverview(api,selected!!,rid,{editing=true},{selected=null});return }
+        fun back(){selectTab(if(tab in listOf("成长","声音","隐私","记忆","摘要","维护","备份","绑定","唤醒与互动","AI 提示词","记录保存","主题颜色"))"设置" else "首页")}
+        BackHandler(enabled=tab!="首页"){back()}
+        if(tab=="主题颜色"){AppearancePage(themeMode,::chooseTheme){back()};return}
+        if(tab in listOf("唤醒与互动","AI 提示词")){DeviceSettingsScreen(connection,false,tab,{back()},{playPreview(it)});return}
+        if(tab=="调试"){DebugChat(connection,back={back()},play={playPreview(it)});return}
+        if(tab=="记录"){RecordsScreen(connection,back={selectTab("首页")},play={playPreview(it)},bottom={ParentNavigation(tab){selectTab(it)}});return}
         var recovery by remember { mutableStateOf("") }
         val restore=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null)run {
             val bytes=withContext(Dispatchers.IO) { contentResolver.openInputStream(uri)!!.use { readLimited(it,32*1024*1024+1) } }
@@ -243,30 +297,37 @@ class MainActivity:ComponentActivity() {
             recovery="";message="已恢复 ${result.getInt("restoredDrafts")} 个待审核草稿"
         } }
         val backup=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if(uri!=null)run { val bytes=withContext(Dispatchers.IO) { api.raw("/v1/backup") };contentResolver.openOutputStream(uri)!!.use { it.write(bytes) };message="备份已保存；请保管在私有位置" } }
-        Page("家庭小伙伴",message,busy) {
-            Row(Modifier.horizontalScroll(rememberScrollState())) { for(name in listOf("首页","资源库","成长","使用安排","声音","隐私","记忆","清单","英语计划","摘要","维护")) { FilterChip(tab==name,{ selectTab(name) },label={ Text(name) });Spacer(Modifier.width(6.dp)) } }
-            Action("刷新") { run { refresh() } }
+        Page(if(tab=="首页")"家长管理" else tab,message,busy,onBack=if(tab in listOf("首页","设置"))null else ({back()}),bottom={ParentNavigation(tab){selectTab(it)}}) {
+            if(tab !in listOf("首页","设置"))TextButton(onClick={if(dirty())reloadParent=true else run{refresh()}},enabled=!busy){Text("刷新") }
             when(tab) {
-                "首页" -> {
-                    Text("让英语自然出现在每天的生活里",fontSize=25.sp,fontWeight=FontWeight.Bold)
-                    Text("孩子从零基础开始，先听熟悉的儿歌和短故事。小伙伴保持安静，等待孩子主动唤醒。")
-                    for(i in 0 until data.length()) { val device=data.getJSONObject(i);Text("${device.optString("name")} · ${if(device.optBoolean("online"))"在线" else "离线"}") }
-                    Text("服务能力：语音识别 ${models.optBoolean("asr")} / 朗读 ${models.optBoolean("tts")} / 对话 ${models.optBoolean("llm")}")
-                    Action("添加孩子的第一本书") { selectTab("资源库") }
+                "首页" -> ParentDashboard(connection){selectTab(it)}
+                "设置" -> {
+                    Text("小伙伴的个性",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    SectionLink("主题颜色",if(themeMode=="light")"浅色" else "深色"){selectTab("主题颜色")}
+                    for((name,sub) in listOf("唤醒与互动" to "小蜜桃、小蜜蜂或自己的昵称","AI 提示词" to "编辑、试聊、恢复默认","声音" to "中英文声音、语气与音量","成长" to "年龄基准与英语阶段"))SectionLink(name,sub){selectTab(name)}
+                    Text("使用与数据",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    for((name,sub) in listOf("隐私" to "相机许可、静音与原创故事","记忆" to "候选审核与儿童撤回","记录保存" to "是否保存、保留时间","备份" to "备份、恢复与空间","摘要" to "使用记录"))SectionLink(name,sub){selectTab(name)}
+                    Text("设备与服务",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    SectionLink("诊断与维护","服务能力和脱敏报告"){selectTab("维护")}
+                    SectionLink("调试","文字、语音与回复回放"){selectTab("调试")}
+                    SectionLink("绑定与恢复","管理本机身份"){selectTab("绑定")}
                 }
+                "连接" -> {DiagnosticsPanel(connection);Text(connection.optString("address"));Action("切换身份 / 连接设置",action=disconnect)}
                 "资源库" -> {
-                    var title by remember { mutableStateOf("") };var kind by remember { mutableStateOf("book") };var search by remember { mutableStateOf("") }
+                    var title by remember { mutableStateOf("") };var kind by remember { mutableStateOf("book") };var search by remember { mutableStateOf("") };var filter by remember{mutableStateOf("all")};var favorites by remember{mutableStateOf(false)}
                     Input("搜索书名 / 标签",search) { search=it }
-                    Row { for((key,label) in listOf("book" to "图书","story" to "故事","song" to "儿歌","dialogue" to "英语短句"))FilterChip(kind==key,{ kind=key },label={ Text(label) }) }
+                    Row(Modifier.horizontalScroll(rememberScrollState())) { for((key,label) in listOf("book" to "图书","story" to "故事","song" to "儿歌","dialogue" to "英语短句"))FilterChip(kind==key,{ kind=key },label={ Text(label) }) }
+                    Row(Modifier.horizontalScroll(rememberScrollState())){for((state,label) in listOf("all" to "全部","draft" to "草稿","published" to "已发布","unlisted" to "已下架"))FilterChip(filter==state,{filter=state},label={Text(label)});FilterChip(favorites,{favorites=!favorites},label={Text("收藏")})}
                     Input("新资源名称",title) { title=it }
-                    Action("创建草稿",enabled=title.isNotBlank()) { run { val result=withContext(Dispatchers.IO) { api.json("/v1/resources","POST",JSONObject().put("kind",kind).put("draft",JSONObject().put("title",title))) };selected=result.getString("id") } }
-                    for(i in 0 until items.length()) { val item=items.getJSONObject(i);val meta=item.getJSONObject("metadata");if(item.getString("kind")==kind && meta.toString().contains(search,true))Card(Modifier.fillMaxWidth().clickable { selected=item.getString("id") }) { Column(Modifier.padding(16.dp)) { Text(meta.getString("title"),fontSize=20.sp);Text("${item.getString("status")} · ${item.optInt("pageCount")} 页 · ${meta.optString("language")}") } } }
+                    Action("创建草稿",enabled=title.isNotBlank()) { run { val result=withContext(Dispatchers.IO) { api.json("/v1/resources","POST",JSONObject().put("kind",kind).put("draft",JSONObject().put("title",title))) };editing=true;selected=result.getString("id") } }
+                    for(i in 0 until items.length()) { val item=items.getJSONObject(i);val meta=item.getJSONObject("metadata");if((kind=="all" || item.getString("kind")==kind) && meta.toString().contains(search,true) && (filter=="all" || item.optString("status")==filter) && (!favorites || meta.optBoolean("favorite")))Card(Modifier.fillMaxWidth().clickable { selected=item.getString("id") }) { Column(Modifier.padding(16.dp)) { Text(meta.getString("title"),fontSize=20.sp);Text("${item.getString("status")} · ${item.optInt("pageCount")} 页 · ${meta.optString("language")}") } } }
                 }
-                "成长","使用安排","声音","隐私","英语计划" -> if(config.length()>0) {
+                "成长","使用安排","声音","隐私","英语计划","记录保存" -> if(config.length()>0 && !busy) {
                     when(tab) {
-                        "成长" -> { JsonField(config,"nickname","唤醒昵称（2—6个汉字）");val p=config.getJSONObject("profile");NumberField(p,"ageAtBaseline","基准年龄（3—17）");JsonField(p,"baseline","年龄基准日期 YYYY-MM-DD");Choice(p,"englishLevel","英语阶段",listOf("beginner" to "零基础","basic" to "基础","intermediate" to "进阶"));Choice(p,"expression","表达方式",listOf("adaptive" to "随年龄适配","simple" to "保持简单"));Text("年龄随日期增长；英语阶段由家长观察后调整，不因生日自动升级。") }
+                        "记录保存" -> {val history=config.optJSONObject("history") ?: JSONObject().put("enabled",false).put("days",7).also{config.put("history",it)};Toggle(history,"enabled","保存后续陪伴对话");Dropdown(history,"days","保留时间",listOf("7" to "7天","30" to "30天","90" to "90天"));Text("默认关闭，不补录过去会话。记录可删除，语音输入不保存。历史回答按文本重新朗读。");SectionLink("查看对话记录"){selectTab("记录")}}
+                        "成长" -> { val p=config.getJSONObject("profile");NumberField(p,"ageAtBaseline","基准年龄（3—17）");JsonField(p,"baseline","年龄基准日期 YYYY-MM-DD");Choice(p,"englishLevel","英语阶段",listOf("beginner" to "零基础","basic" to "基础","intermediate" to "进阶"));Choice(p,"expression","表达方式",listOf("adaptive" to "随年龄适配","simple" to "保持简单"));Text("年龄随日期增长；英语阶段由家长观察后调整，不因生日自动升级。") }
                         "使用安排" -> { val p=config.getJSONObject("policy");NumberField(p,"dailyMinutes","每日使用分钟，0表示不设额度");NumberField(p,"mediaMinutes","连续媒体播放上限分钟");Toggle(p,"manualBlocked","立即停用");JsonField(p,"timezone","家庭时区");val intervals=p.getJSONArray("intervals")
-                            for(i in 0 until intervals.length()) { val interval=intervals.getJSONObject(i);Text("禁用时段 ${i+1}");JsonField(interval,"start","开始 HH:mm");JsonField(interval,"end","结束 HH:mm");var days by remember(interval) { mutableStateOf((0 until interval.getJSONArray("days").length()).map { interval.getJSONArray("days").getInt(it) }.toSet()) };Row { for(d in 1..7)FilterChip(d in days,{ days=if(d in days)days-d else days+d;interval.put("days",JSONArray(days.sorted())) },label={ Text("$d") }) };Action("删除这个禁用时段") { intervals.remove(i);config=JSONObject(config.toString()) } }
+                            for(i in 0 until intervals.length()) { val interval=intervals.getJSONObject(i);Text("禁用时段 ${i+1}");JsonField(interval,"start","开始 HH:mm");JsonField(interval,"end","结束 HH:mm");var days by remember(interval) { mutableStateOf((0 until interval.getJSONArray("days").length()).map { interval.getJSONArray("days").getInt(it) }.toSet()) };Row(Modifier.horizontalScroll(rememberScrollState())) { for(d in 1..7)FilterChip(d in days,{ days=if(d in days)days-d else days+d;interval.put("days",JSONArray(days.sorted())) },label={ Text("$d") }) };Action("删除这个禁用时段") { intervals.remove(i);config=JSONObject(config.toString()) } }
                             Action("添加禁用时段",enabled=intervals.length()<14) { intervals.put(JSONObject().put("days",JSONArray((1..7).toList())).put("start","20:00").put("end","09:00"));config=JSONObject(config.toString()) }
                             Action("临时放行15分钟") { p.put("overrideUntil",System.currentTimeMillis()/1000.0+890);message="请点击保存应用；临时放行不会取消手动停用" }
                         }
@@ -304,7 +365,7 @@ class MainActivity:ComponentActivity() {
                                 Toggle(plan,"enabled","启用计划 ${i+1}");JsonField(plan,"time","每天开始时间 HH:mm");NumberField(plan,"minutes","本次最多分钟（1—30）")
                                 Choice(plan,"playlistId","播放清单",(0 until data.length()).map { val list=data.getJSONObject(it);list.getString("id") to list.getString("name") })
                                 var days by remember(plan) { mutableStateOf((0 until plan.getJSONArray("days").length()).map { plan.getJSONArray("days").getInt(it) }.toSet()) }
-                                Row { for(d in 1..7)FilterChip(d in days,{ days=if(d in days)days-d else days+d;plan.put("days",JSONArray(days.sorted())) },label={ Text("$d") }) }
+                                Row(Modifier.horizontalScroll(rememberScrollState())) { for(d in 1..7)FilterChip(d in days,{ days=if(d in days)days-d else days+d;plan.put("days",JSONArray(days.sorted())) },label={ Text("$d") }) }
                                 Action("删除计划 ${i+1}") { plans.remove(i);config=JSONObject(config.toString()) }
                             }
                             Action("添加未启用计划",enabled=plans.length()<10 && data.length()>0) { plans.put(JSONObject().put("id",UUID.randomUUID().toString().replace("-","")).put("playlistId",data.getJSONObject(0).getString("id")).put("enabled",false).put("time","18:30").put("minutes",10).put("days",JSONArray((1..7).toList())));config=JSONObject(config.toString()) }
@@ -318,7 +379,7 @@ class MainActivity:ComponentActivity() {
                         message="已发送，等待机器人确认"
                         var state="pending"
                         repeat(12) { if(state=="pending") { delay(1000);state=withContext(Dispatchers.IO) { api.json("/v1/commands/$command").getString("state") } } }
-                        message=when(state) { "applied" -> "机器人已应用配置";"pending","expired" -> "未确认，指令已超时；请刷新后重试";else -> "配置状态：$state" };refresh()
+                        message=when(state) { "applied" -> "机器人已应用配置";"pending","expired" -> "未确认，输入保留；请核对当前版本后重试";else -> "配置状态：$state" };if(state=="applied")refresh()
                     } }
                 }
                 "记忆" -> {
@@ -336,9 +397,10 @@ class MainActivity:ComponentActivity() {
                     for(i in 0 until data.length()) { val m=data.getJSONObject(i);Card { Column(Modifier.padding(12.dp)) { val body=m.getJSONObject("body");JsonField(body,"content","明确偏好（可修改后批准）");var days by remember(m) { mutableStateOf(if(body.optDouble("expires")>0)kotlin.math.ceil((body.optDouble("expires")-System.currentTimeMillis()/1000.0)/86400).toInt().coerceAtLeast(1).toString() else "0") };Input("有效天数，0为长期",days) { days=it };Text("状态：${mapOf("pending" to "待审核","approved" to "已批准","rejected" to "已拒绝","suspended" to "已停用，待核对")[m.getString("state")] ?: "未知"}");Text("来源：${body.optString("source","主动表达")} · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date((body.optDouble("sourceTime")*1000).toLong()))}",fontSize=12.sp);Row { for((key,label) in listOf("approved" to "批准","rejected" to "拒绝","deleted" to "删除"))Action(label) { run { withContext(Dispatchers.IO) { api.json("/v1/memories/${m.getString("id")}","PUT",JSONObject().put("state",key).put("content",body.getString("content")).put("expires",days.toIntOrNull()?.let { require(it in 0..3650);if(it==0)0.0 else System.currentTimeMillis()/1000.0+it*86400.0 } ?: error("有效天数需0—3650整数"))) };refresh() } } } } } }
                 }
                 "清单" -> {
+                    SectionLink("英语计划","默认关闭，错过不补播"){selectTab("英语计划")}
                     var name by remember { mutableStateOf("") };var selectedIds by remember { mutableStateOf(setOf<String>()) }
                     Input("播放清单名称",name) { name=it }
-                    for(i in 0 until items.length()) { val r=items.getJSONObject(i);val id=r.getString("id");Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(id in selectedIds,{ selectedIds=if(it)selectedIds+id else selectedIds-id });Text(r.getJSONObject("metadata").getString("title")) } }
+                    for(i in 0 until items.length()) { val r=items.getJSONObject(i);if(r.optString("status")!="published")continue;val id=r.getString("id");Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(id in selectedIds,{ selectedIds=if(it)selectedIds+id else selectedIds-id });Text(r.getJSONObject("metadata").getString("title")) } }
                     Action("保存播放清单",enabled=name.isNotBlank() && selectedIds.isNotEmpty()) { run { withContext(Dispatchers.IO) { api.json("/v1/playlists","POST",JSONObject().put("name",name).put("resources",JSONArray(selectedIds.toList()))) };name="";selectedIds=emptySet();refresh() } }
                     for(i in 0 until data.length()) { val list=data.getJSONObject(i);Text(list.getString("name"),fontWeight=FontWeight.Bold);Action("播放这个清单") { run { withContext(Dispatchers.IO) { api.json("/v1/robots/$rid/control","POST",JSONObject().put("requestId",UUID.randomUUID().toString()).put("action","playlist").put("playlistId",list.getString("id"))) };message="播放请求已发送；每首播放前都会检查发布和使用时限" } };Action("删除清单") { run { withContext(Dispatchers.IO) { api.json("/v1/playlists/${list.getString("id")}","DELETE") };refresh() } } }
                 }
@@ -350,20 +412,24 @@ class MainActivity:ComponentActivity() {
                     for(i in 0 until categories.length()) { val item=categories.getJSONObject(i);Text("${kinds[item.getString("kind")] ?: item.getString("kind")}：已有阅读记录 ${item.getInt("resources")} 项") }
                     val failures=summary.optJSONObject("serviceFailures") ?: JSONObject()
                     Text("当前机器人登记期间：问答失败 ${failures.optInt("turn")}，媒体失败 ${failures.optInt("media")}，下载失败 ${failures.optInt("download")}，连接中断 ${failures.optInt("network")} 次")
-                    Text("内容类别按仍保留的播放进度统计，删除后不再计入；失败次数离线后需联网同步。时长与次数不代表学习效果，不保存逐句对话。",fontSize=12.sp)
+                    Text("内容类别按仍保留的播放进度统计，删除后不再计入；失败次数离线后需联网同步。时长与次数不代表学习效果。",fontSize=12.sp)
                 }
-                "维护" -> {
+                "维护","备份","绑定","离线内容" -> {
                     Text("服务地址：${connection.getString("address")}");Text("证书指纹：${connection.getString("certificateSha256")}",fontSize=12.sp)
-                    DiagnosticsPanel(connection)
+                    if(tab=="维护")DiagnosticsPanel(connection)
                     var downloads by remember { mutableStateOf(JSONArray()) }
                     Action("查看机器人离线资源状态") { run { downloads=withContext(Dispatchers.IO) { api.array("/v1/downloads") } } }
                     for(i in 0 until downloads.length()) { val d=downloads.getJSONObject(i);Text("${d.optString("resource_id")} · ${d.optString("state")}",fontSize=12.sp) }
+                    if(tab=="备份") {
                     Action("导出资源库备份") { backup.launch("family-library.zip") }
                     OutlinedTextField(recovery,{ recovery=it },label={ Text("电脑管理员恢复凭据") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
                     Action("选择备份并恢复为待审核草稿",enabled=recovery.isNotBlank()) { restore.launch(arrayOf("application/zip","application/octet-stream")) }
                     Text("备份不包含设备凭据和生成音频。恢复后重新审核草稿、发布并生成音频；已删除内容不被旧备份复活。")
-                    Action("撤销本机家长凭据并退出") { run { withContext(Dispatchers.IO) { api.json("/v1/devices/${connection.getString("deviceId")}","DELETE") };vault.remove("parent");disconnect() } }
+                    }
+                    if(tab=="绑定") {
+                    Action("撤销本机家长凭据并退出") { revokeParent=true }
                     Action("切换身份 / 连接设置",action=disconnect)
+                    }
                 }
             }
         }
@@ -375,9 +441,12 @@ class MainActivity:ComponentActivity() {
         var purpose by rememberSaveable { mutableStateOf("pages") };var targetPage by rememberSaveable { mutableStateOf("") };var capturePath by rememberSaveable { mutableStateOf("") }
         var importing by remember { mutableStateOf(false) };var cancelImport by remember { mutableStateOf(false) }
         var captureBatch by rememberSaveable { mutableStateOf(false) };var capturedPages by rememberSaveable { mutableStateOf(listOf<String>()) }
+        var stage by rememberSaveable{mutableIntStateOf(0)};var savedDraft by remember{mutableStateOf("")};var leaveEditor by remember{mutableStateOf(false)}
+        fun exitEditor(){stopPreview();if(item?.getJSONObject("draft")?.toString()!=savedDraft && item!=null)leaveEditor=true else back()}
+        BackHandler{if(!busy)exitEditor()}
         fun run(action:suspend ()->Unit) { scope.launch { busy=true;try { action() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "操作失败" } finally { busy=false } } }
-        suspend fun refresh() { val result=withContext(Dispatchers.IO) { Triple(api.json("/v1/resources/$rid"),api.array("/v1/jobs"),api.json("/v1/models")) };item=result.first;jobs=result.second;voiceModels=result.third;source=null }
-        suspend fun save() { val current=item ?: return;item=withContext(Dispatchers.IO) { api.json("/v1/resources/$rid","PUT",JSONObject().put("expectedVersion",current.getInt("draft_version")).put("draft",current.getJSONObject("draft"))) } }
+        suspend fun refresh() { val result=withContext(Dispatchers.IO) { Triple(api.json("/v1/resources/$rid"),api.array("/v1/jobs"),api.json("/v1/models")) };item=result.first;savedDraft=item!!.getJSONObject("draft").toString();jobs=result.second;voiceModels=result.third;source=null }
+        suspend fun save() { val current=item ?: return;item=withContext(Dispatchers.IO) { api.json("/v1/resources/$rid","PUT",JSONObject().put("expectedVersion",current.getInt("draft_version")).put("draft",current.getJSONObject("draft"))) };savedDraft=item!!.getJSONObject("draft").toString() }
         suspend fun awaitJob(jobId:String):JSONObject {
             try {
                 return withTimeout(210_000) {
@@ -449,14 +518,15 @@ class MainActivity:ComponentActivity() {
             if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)launchCapture()
             else cameraPermission.launch(Manifest.permission.CAMERA)
         }
-        Page("资源编辑",message,busy) {
-            Action("返回资源库",enabled=!busy,action=back)
+        Page("编辑资源草稿",message,busy,onBack={if(!busy)exitEditor()}) {
+            Row(Modifier.fillMaxWidth()){for((index,label) in listOf("1 录入","2 校对","3 试听与发布").withIndex())FilterChip(stage==index,{stage=index},label={Text(label)},modifier=Modifier.weight(1f),enabled=!busy)}
             if(importing)Action("停止后续导入",enabled=!cancelImport) { cancelImport=true;message="正在停止导入，已处理的页面会保留。" }
             val current=item
             if(current!=null && !busy) {
                 val draft=current.getJSONObject("draft");val pages=draft.getJSONArray("pages")
+                if(stage==0){
                 JsonField(draft,"title","名称");StringListField(draft,"aliases","别名（每行一个）");StringListField(draft,"tags","标签（每行一个）");NumberField(draft,"minAge","最小适龄");NumberField(draft,"maxAge","最大适龄");JsonField(draft,"edition","版本 / 年级");JsonField(draft,"isbn","ISBN");JsonField(draft,"author","作者");JsonField(draft,"publisher","出版社");JsonField(draft,"source","来源")
-                Choice(draft,"language","语言",listOf("zh" to "中文","en" to "英语","bilingual" to "双语"));Choice(draft,"englishLevel","适合英语阶段",listOf("beginner" to "零基础","basic" to "基础","intermediate" to "进阶"));Toggle(draft,"favorite","收藏");Toggle(draft,"complete","已录入完整内容")
+                Dropdown(draft,"language","语言",listOf("zh" to "中文","en" to "英文"));Choice(draft,"englishLevel","适合英语阶段",listOf("beginner" to "零基础","basic" to "基础","intermediate" to "进阶"));Toggle(draft,"favorite","收藏");Toggle(draft,"complete","已录入完整内容")
                 JsonField(draft,"excerpt","节选范围（未完整录入时必填）")
                 Row { for((key,label) in listOf("cover" to "封面","pages" to "书页 / PDF / 文本","audio" to "音频"))Action("导入$label",enabled=!busy) { purpose=key;targetPage="";import.launch(arrayOf("*/*")) } }
                 Row { Action("拍摄封面") { takePhoto("cover") };Action("拍摄书页") { takePhoto("pages") } }
@@ -474,6 +544,9 @@ class MainActivity:ComponentActivity() {
                         }
                     }
                 }
+                Action("下一步：逐页校对"){stage=1}
+                }
+                if(stage==1){
                 Text("${pages.length()} 页 · 草稿版本 ${current.getInt("draft_version")} · ${current.getString("status")}")
                 val pageOrderWarnings=current.optJSONArray("pageOrderWarnings") ?: JSONArray()
                 for(i in 0 until pageOrderWarnings.length())Text(pageOrderWarnings.getString(i),color=MaterialTheme.colorScheme.error)
@@ -483,8 +556,7 @@ class MainActivity:ComponentActivity() {
                     Row { Action("上一页",enabled=pageIndex>0) { pageIndex--;source=null };Text("${pageIndex+1}/${pages.length()}",Modifier.padding(12.dp));Action("下一页",enabled=pageIndex<pages.length()-1) { pageIndex++;source=null } }
                     key(page) {
                         JsonField(page,"label","印刷页码（原书没有可留空）");JsonField(page,"chapter","章节");JsonField(page,"text","校对原文",5)
-                        var pronunciation by remember(page) { mutableStateOf(page.optJSONObject("pronunciation")?.toString(2) ?: "{}") }
-                        OutlinedTextField(pronunciation,{ pronunciation=it;runCatching { page.put("pronunciation",JSONObject(it)) } },label={ Text("发音映射 JSON（原词→读音文本）") },modifier=Modifier.fillMaxWidth())
+                        PronunciationEditor(page)
                         val warningNames=mapOf("BLANK" to "未识别到正文，请核对是否空白页", "DUPLICATE" to "与其他页正文完全相同，请检查重复上传", "LOW_CONFIDENCE" to "部分文字识别置信度较低", "OCR_FAILED" to "本页识别失败，可重试或重拍")
                         val warnings=page.optJSONArray("qualityWarnings") ?: JSONArray()
                         for(w in 0 until warnings.length())Text(warningNames[warnings.getString(w)] ?: warnings.getString(w),color=MaterialTheme.colorScheme.error)
@@ -503,10 +575,14 @@ class MainActivity:ComponentActivity() {
                     }
                 }
                 Action("手工添加文字页") { pages.put(JSONObject().put("id",UUID.randomUUID().toString()).put("text","").put("reviewed",false));pageIndex=pages.length()-1;item=JSONObject(current.toString()) }
+                Action("下一步：试听与发布"){stage=2}
+                }
                 Action("保存草稿",enabled=!busy) { run { save();message="草稿已保存；修改正文后需要重新试听" } }
+                if(stage==2){
+                Toggle(draft,"complete","完整收录（关闭表示节选）");JsonField(draft,"excerpt","节选范围")
                 if(draft.optString("audioAsset").isNotEmpty())Action("试听已上传原音频",enabled=!busy) { run { val audio=withContext(Dispatchers.IO) { api.raw("/v1/assets/${draft.getString("audioAsset")}") };playPreview(audio);message="试听后确认完整范围和可发布状态" } }
                 val voice=draft.getJSONObject("voice")
-                VoiceControls(voice,voiceModels,resource=true)
+                if(draft.optString("audioAsset").isEmpty())VoiceControls(voice,voiceModels,resource=true) else Text("使用原录音，保留原声音色和情感")
                 Action("试听当前页",enabled=!busy && pages.length()>0) { run { save();val saved=item!!.getJSONObject("draft");val text=saved.getJSONArray("pages").getJSONObject(pageIndex).getString("text").take(600);val audio=withContext(Dispatchers.IO) { api.raw("/v1/speech/preview","POST",JSONObject().put("text",text).put("voice",saved.getJSONObject("voice")).put("story",true).toBody()) };playPreview(audio);message="请确认正文、页序和发音后勾选试听确认" } }
                 Toggle(draft,"auditioned","已试听并确认可发布")
                 Action("发布给机器人",enabled=!busy) { run { save();withContext(Dispatchers.IO) { api.json("/v1/resources/$rid/publish","POST",JSONObject().put("expectedVersion",item!!.getInt("draft_version")).put("requestId",UUID.randomUUID().toString())) };refresh();message="已发布固定版本；机器人可按书名或封面查找" } }
@@ -516,8 +592,10 @@ class MainActivity:ComponentActivity() {
                 } } }
                 Action("下架",enabled=current.getString("status")=="published") { run { withContext(Dispatchers.IO) { api.json("/v1/resources/$rid/unlist","POST",JSONObject()) };refresh();message="已下架；离线设备会在联网同步后移除" } }
                 Action("删除资源") { delete=true }
+                }
             }
         }
+        if(leaveEditor)AlertDialog(onDismissRequest={leaveEditor=false},title={Text("保存草稿修改？")},text={Text("保存草稿不会覆盖当前发布版；离开可选择保存或放弃。")},confirmButton={TextButton(onClick={leaveEditor=false;run{save();back()}}){Text("保存后离开")}},dismissButton={Row{TextButton(onClick={leaveEditor=false;back()}){Text("放弃修改")};TextButton(onClick={leaveEditor=false}){Text("继续编辑")}}})
         if(captureBatch && capturePath.isBlank())AlertDialog(
             onDismissRequest={ },title={ Text("已拍摄 ${capturedPages.size} 页") },
             text={ Text("按拍摄顺序录入，之后可逐页校对。相机返回后选择继续拍摄或开始导入。") },
@@ -534,12 +612,15 @@ class MainActivity:ComponentActivity() {
     }
 }
 
-@Composable fun Page(title:String,message:String,busy:Boolean,content:@Composable ColumnScope.()->Unit) {
-    Surface(Modifier.fillMaxSize()) { Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Text(title,fontSize=27.sp,fontWeight=FontWeight.Bold)
+@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,content:@Composable ColumnScope.()->Unit) {
+    Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.safeDrawingPadding().imePadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){if(onBack!=null)TextButton(onClick=onBack){Text("←",fontSize=24.sp)};Text(title,fontSize=22.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(8.dp))}
         if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
-        if(message.isNotEmpty())Card { Text(message,Modifier.padding(12.dp)) }
-        content();Spacer(Modifier.height(24.dp))
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            if(message.isNotEmpty())Card { Text(message,Modifier.padding(12.dp)) }
+            content();Spacer(Modifier.height(24.dp))
+        }
+        bottom?.invoke()
     } }
 }
 @Composable fun Action(text:String,enabled:Boolean=true,action:()->Unit) { Button(onClick=action,enabled=enabled,contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) { Text(text) } }

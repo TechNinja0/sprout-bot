@@ -95,6 +95,9 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
     private var lastPolicy=Permission.ALLOWED
     private val scheduler=ListeningScheduler()
     private var scheduledUntil=0L
+    var appliedWakeName by mutableStateOf(vault.get(robotKey(connection,"kws"))?.optString("nickname") ?: "小伙伴");private set
+    var appliedWakeVersion by mutableIntStateOf(vault.get(robotKey(connection,"kws"))?.optInt("version") ?: 0);private set
+    private var pendingWakeName=""
     private var keywordVersion=-1
     private var pendingKeywords:String?=null
     private val cache=File(activity.filesDir,"library/"+robotScope(connection)).apply { mkdirs() }
@@ -131,7 +134,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         }
         scope.launch {
             while(isActive) {
-                if(foreground || selfCheck.running) sync()
+                if(foreground || selfCheck.running || activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) sync()
                 delay(2500)
             }
         }
@@ -189,7 +192,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
             }
         }
         if(!permitted || session.muted || (!session.active && !session.mediaPlaying && session.state!=SessionState.CLOSING)) cancelAudio()
-        if(!session.active && !session.mediaPlaying)pendingKeywords?.let { input.customKeywords=it;pendingKeywords=null }
+        if(!session.active && !session.mediaPlaying)pendingKeywords?.let { input.customKeywords=it;pendingKeywords=null;if(pendingWakeName.isNotBlank()){appliedWakeName=pendingWakeName;appliedWakeVersion=keywordVersion;pendingWakeName=""} }
         input.enabled=permitted && !session.muted && has(Manifest.permission.RECORD_AUDIO)
         input.capture=AudioInput.Capture(session.generation,input.enabled && session.state in setOf(SessionState.OPENING,SessionState.LISTENING,SessionState.FOLLOW_UP))
         camera.setEnabled(foreground && session.camera && !thermal)
@@ -233,7 +236,10 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
     private suspend fun sync() {
         try {
             val failureSnapshot=JSONObject(failures.toString())
-            val heartbeat=withContext(Dispatchers.IO) { api.json("/v1/heartbeat","POST",JSONObject().put("status",if(selfCheck.running)"self_check" else state.name.lowercase()).put("appliedVersion",version).put("camera",cameraActive).put("microphone",micActive).put("reason",lastPolicy.name).put("serviceFailures",failureSnapshot)) }
+            val playback=JSONObject().put("state",if(session.mediaPaused)"paused" else if(session.mediaPlaying && trackIsMedia && track?.playState==AudioTrack.PLAYSTATE_PLAYING)"playing" else if(session.mediaPlaying)"loading" else "idle")
+            currentManifest?.takeIf { session.mediaPlaying || session.mediaPaused }?.let { m -> playback.put("resourceId",m.optString("resourceId")).put("revisionId",m.optString("revisionId")).put("title",m.optString("title")).put("segment",segmentIndex).put("total",m.optJSONArray("segments")?.length() ?: 0).put("positionMs",offsetMs.coerceAtLeast(0)) }
+            val reason=when { selfCheck.running -> "SELF_CHECK";!foreground -> "MANAGEMENT";power.currentThermalStatus>=PowerManager.THERMAL_STATUS_SEVERE -> "THERMAL";config.optBoolean("muted") -> "muted";else -> lastPolicy.name }
+            val heartbeat=withContext(Dispatchers.IO) { api.json("/v1/heartbeat","POST",JSONObject().put("status",if(selfCheck.running)"self_check" else state.name.lowercase()).put("appliedVersion",version).put("camera",cameraActive).put("microphone",micActive).put("reason",reason).put("serviceFailures",failureSnapshot).put("playback",playback).put("wakeName",appliedWakeName).put("wakeVersion",appliedWakeVersion.coerceAtLeast(0)),timeoutMs=5000) }
             val delta=kotlin.math.abs(heartbeat.getDouble("serverTime")*1000-System.currentTimeMillis())
             if(delta<120000) { if(!verifiedClock || !ledger.trusted) { ledger.revalidate();vault.save(robotKey(connection,"clock"),JSONObject().put("boot",System.currentTimeMillis()-SystemClock.elapsedRealtime())) };verifiedClock=true }
             else { verifiedClock=false;diagnostic="手机与服务端时间不一致，请修正时间" }
@@ -241,7 +247,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
             applyConfig(current.getInt("version"),current.getJSONObject("config"))
             if(keywordVersion!=version) {
                 val words=withContext(Dispatchers.IO) { api.json("/v1/kws/keywords") }
-                pendingKeywords=localKeywords(words.getString("keywords"));vault.save(robotKey(connection,"kws"),words);keywordVersion=words.getInt("version")
+                pendingWakeName=words.optString("nickname");pendingKeywords=localKeywords(words.getString("keywords"));vault.save(robotKey(connection,"kws"),words);keywordVersion=words.getInt("version")
             }
             val pending=withContext(Dispatchers.IO) { api.array("/v1/commands") }
             for(i in 0 until pending.length()) {

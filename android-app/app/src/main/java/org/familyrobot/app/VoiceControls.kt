@@ -20,6 +20,8 @@ fun VoiceControls(voice:JSONObject,models:JSONObject,resource:Boolean=false) {
     for(key in listOf("zh","en","story"))if(!voice.has(key))voice.put(key,"default")
     if(!voice.has("style"))voice.put("style","gentle")
     if(!voice.has("storyStyle"))voice.put("storyStyle","storytelling")
+    if(!voice.has("quality"))voice.put("quality","high")
+    if(info?.optJSONArray("qualities")!=null){Dropdown(voice,"quality","输出音质",listOf("standard" to "标准 · 16 kHz","high" to "高品质 · 原始采样率"));Text("两档使用同一模型；标准档减少传输与存储，高品质保留合成原始采样率。原录音不做换声。")}
     Text("本地语音：${info?.optString("model") ?: "读取声音能力中"}")
     if(info!=null && !info.optBoolean("ready"))Text("电脑上的语音模型尚未就绪，请完成本地模型安装。")
     if(resource)Choice(voice,"story","本资源朗读声音",options())

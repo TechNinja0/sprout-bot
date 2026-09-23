@@ -40,3 +40,13 @@ HTTPS JSON API，统一 `/v1`。完整字段由服务端 Pydantic 与 `/openapi.
 `GET /v1/diagnostics` 按绑定范围提供白名单版本/状态/失败计数/模型可用性及生成时间；心跳 `self_check` 表示本机明确启动的诊断，不等于儿童会话。模型可用性与物理自检结果分别呈现，报告不含凭据、自由文本状态、地址或内容。
 
 `GET /v1/memory-actions` 仅家长可读，返回最近20条无正文撤回事件。`/turns` 的相关项遗忘与 `/memories/forget` 的明确全量删除分开；无法确定相关项时置 `suspended` 并清空上下文，家长审核后才恢复。旧备份恢复不自动批准，删除墓碑仍优先。
+
+
+## V8 管理设置、调试与记录
+
+- `POST /local/settings`：机器人身份提交 `requestId/expectedVersion/settings`，仅允许昵称、interaction、voice、prompts、相机许可/静音/减少动态。Android 仅在本机 PIN 解锁后的管理页调用，沿用配置命令及 ACK，不能修改家长时段、档案和记录政策。
+- `Config.prompts`：daily/english/story/visual，1—4000 字，变量只允许 `{{robot_name}}`、`{{age}}`、`{{english_level}}`。`GET /prompts/defaults` 返回包内默认配置；`GET /prompts/versions` 返回本机器人最近 20 个先前版本。正在进行的模型会话保留模板快照。
+- `POST /debug/turn`：sessionId、text、promptKind、可选草稿 prompts；返回 text/recordId/configVersion/draft。`POST /debug/recognize` 接收本管理设备的有界 WAV；`POST /debug/speech` 试听本机文字。调试会话不触发机器人控制、偏好写入或远程采集。
+- `GET/DELETE /records?kind=companion|debug`、`DELETE /records/{id}` 和 `POST /records/{id}/speech`：陪伴记录仅家长可访问，调试记录仅原设备可访问。`history.enabled` 默认 false，`history.days` 为 7/30/90。过期和删除后不再提供朗读，回答音频按已保存文本/声音重新合成，原始儿童音频不保存。
+- 心跳新增 playback（状态、资源/版本、标题、段落、总段数、毫秒位置）、wakeName/wakeVersion；控制 ACK 不等于实际播放。Voice.quality 为 standard/high，前者输出16kHz，后者保留原采样率。两档不代表两种模型。
+- 主题为手机本地浅色/深色偏好，不属于共享服务配置。新 APK 与服务需配套更新。

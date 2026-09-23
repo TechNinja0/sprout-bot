@@ -61,7 +61,7 @@ class Api(val connection:JSONObject) {
         }
     }
     fun json(path:String,method:String="GET",body:JSONObject?=null,timeoutMs:Long?=null)=JSONObject(String(raw(path,method,body?.toString()?.toRequestBody("application/json".toMediaType()),timeoutMs=timeoutMs)))
-    fun array(path:String)=org.json.JSONArray(String(raw(path)))
+    fun array(path:String,timeoutMs:Long?=null)=org.json.JSONArray(String(raw(path,timeoutMs=timeoutMs)))
     fun upload(path:String,name:String,data:ByteArray,type:String="application/octet-stream",headers:Map<String,String> = emptyMap(),timeoutMs:Long?=null)=JSONObject(String(raw(path,"POST",MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",name,data.toRequestBody(type.toMediaType())).build(),headers,timeoutMs)))
     fun checkIdentity() {
         val health=json("/health",timeoutMs=5000)

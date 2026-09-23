@@ -26,4 +26,4 @@ pythonpath = ["."]
 include = ["robot_service*"]
 
 [tool.setuptools.package-data]
-robot_service = ["data/*.txt"]
+robot_service = ["data/*.txt", "data/*.json"]

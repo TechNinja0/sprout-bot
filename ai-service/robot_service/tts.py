@@ -114,6 +114,10 @@ def capabilities(root: Path):
         "ready": Path(worker_python()).is_file()
         and all((model_path(root) / f).is_file() for f in required),
         "localOnly": True,
+        "qualities": [
+            {"id": "standard", "name": "标准 · 16 kHz"},
+            {"id": "high", "name": "高品质 · 原始采样率"},
+        ],
         "supportsInstruction": qwen,
         "supportsStyle": qwen,
         "speedMode": "instruction" if qwen else "factor",
@@ -198,3 +202,32 @@ def create_provider(root: Path) -> TTSProvider:
     from .tts_kokoro import KokoroProvider
 
     return KokoroProvider(model_path(root))
+
+
+def output_quality(data: bytes, quality: str) -> bytes:
+    """Standard output reduces transport/storage; does not swap the voice model."""
+    if quality == "high":
+        return data
+    import av
+    import numpy as np
+
+    with wave.open(io.BytesIO(data), "rb") as source:
+        if source.getnchannels() != 1 or source.getsampwidth() != 2:
+            raise ValueError("音质转换需要单声道16位PCM")
+        rate = source.getframerate()
+        pcm = source.readframes(source.getnframes())
+    if rate <= 16000:
+        return data
+    frame = av.AudioFrame.from_ndarray(
+        np.frombuffer(pcm, dtype=np.int16).reshape(1, -1), format="s16", layout="mono"
+    )
+    frame.sample_rate = rate
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+    frames = [*resampler.resample(frame), *resampler.resample(None)]
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as target:
+        target.setnchannels(1)
+        target.setsampwidth(2)
+        target.setframerate(16000)
+        target.writeframes(b"".join(f.to_ndarray().tobytes() for f in frames))
+    return buffer.getvalue()

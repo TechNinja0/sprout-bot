@@ -83,7 +83,7 @@ class BookImportUiTest {
             device.waitForIdle()
             device.findObject(By.text(text))?.let { return it }
             device.wait(Until.hasObject(By.clazz("android.widget.EditText")),5000)
-            for(i in 0..20) { if(device.hasObject(By.text("资源编辑")) || device.hasObject(By.text("家庭小伙伴")))break;if(!scroll(true))break }
+            for(i in 0..20) { if(device.hasObject(By.text("编辑资源草稿")) || device.hasObject(By.text("家长管理")))break;if(!scroll(true))break }
             for(i in 0..28) {
                 device.findObject(By.text(text))?.let { return it }
                 if(!scroll(false)) { Thread.sleep(300);device.findObject(By.text(text))?.let { return it };break }
@@ -99,9 +99,9 @@ class BookImportUiTest {
             rid=created.getString("id")
             vault.save("identity",JSONObject().put("mode","parent"));instrumentation.addMonitor(monitor)
             context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-            assertTrue(device.wait(Until.hasObject(By.text("家庭小伙伴")),10000))
-            find("资源库").click();find("原创图书录入界面测试").click()
-            assertTrue(device.wait(Until.hasObject(By.text("资源编辑")),10000));find("出版社")
+            assertTrue(device.wait(Until.hasObject(By.text("家长管理")),10000))
+            find("资源库").click();find("原创图书录入界面测试").click();find("编辑工作草稿").click()
+            assertTrue(device.wait(Until.hasObject(By.text("编辑资源草稿")),10000));find("出版社")
             find("连续拍摄书页").click()
             assertTrue(device.wait(Until.hasObject(By.text("已拍摄 1 页")),10000));find("继续拍摄").click()
             assertTrue(device.wait(Until.hasObject(By.text("已拍摄 2 页")),10000));find("导入已拍书页").click()
@@ -117,7 +117,7 @@ class BookImportUiTest {
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertTrue(pages.getJSONObject(3).getString("text").contains("Picker page 1"));assertTrue(pages.getJSONObject(4).getString("text").contains("Picker page 2"))
             assertEquals(1,pickerCount.get());record("picker-fixture-two-pages")
-            find("下一页").click();find("重新识别本页").click()
+            find("2 校对").click();find("下一页").click();find("重新识别本页").click()
             waitFor("单页重识别完成") { device.hasObject(By.textContains("本页识别：needs_review")) }
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertEquals(5,pages.length());assertTrue(pages.getJSONObject(0).getBoolean("reviewed"))

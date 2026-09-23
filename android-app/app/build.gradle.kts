@@ -34,3 +34,13 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }
+
+// These local assets are intentionally untracked, but a runnable APK must include them.
+val verifySpeechAssets by tasks.registering {
+    val names = listOf("kws/keywords.txt", "kws/tokens.txt", "kws/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", "kws/decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", "kws/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx", "vad/silero_vad.onnx")
+    doLast {
+        val missing = names.filter { !file("src/main/assets/models/$it").isFile }
+        check(missing.isEmpty()) { "缺少本地语音资源：${missing.joinToString()}；请按模型安装说明准备 assets/models 后再打包。" }
+    }
+}
+tasks.named("preBuild") { dependsOn(verifySpeechAssets) }

@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from .auth import router as auth_router
+from .companion import router as companion_router
 from .diagnostics import router as diagnostics_router
 from .imports import router as imports_router
 from .intelligence import router as intelligence_router
@@ -77,7 +78,19 @@ def create_app(root: Path | str = "runtime"):
             if os.environ.get("ROBOT_PRELOAD_MODELS") == "1"
             else None
         )
+
+        async def expire_history():
+            from .companion import purge
+
+            while True:
+                for row in app.state.store.read("SELECT robot_id FROM configs"):
+                    await asyncio.to_thread(purge, app.state.store, row["robot_id"])
+                await asyncio.sleep(60)
+
+        history_cleanup = asyncio.create_task(expire_history())
         yield
+        history_cleanup.cancel()
+        await asyncio.gather(history_cleanup, return_exceptions=True)
         if warmup is not None:
             warmup.cancel()
             await asyncio.gather(warmup, return_exceptions=True)
@@ -103,6 +116,7 @@ def create_app(root: Path | str = "runtime"):
     app.state.tts_slots = PrioritySlot()
     app.state.dialogue_slots = asyncio.Semaphore(1)
     app.state.sessions = {}
+    app.state.debug_sessions = {}
     app.state.games = {}
     app.state.memory_epoch = "initial"
     app.state.memory_referents = {}
@@ -111,6 +125,7 @@ def create_app(root: Path | str = "runtime"):
     app.include_router(keywords_router)
     app.include_router(intelligence_router)
     app.include_router(auth_router)
+    app.include_router(companion_router)
     app.include_router(library_router)
     app.include_router(imports_router)
     app.include_router(management_router)

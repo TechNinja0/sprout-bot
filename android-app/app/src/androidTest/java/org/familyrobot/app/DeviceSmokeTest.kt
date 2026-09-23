@@ -42,8 +42,8 @@ class DeviceSmokeTest {
         context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         assertTrue(device.wait(Until.hasObject(By.text("连接家庭机器人")),10000))
         val edits=device.findObjects(By.clazz("android.widget.EditText"))
-        assertEquals(2,edits.size)
-        edits[0].text=material;edits[1].text="258369"
+        assertEquals(3,edits.size)
+        edits[0].text=material;edits[1].text="258369";edits[2].text="258369"
         if(!device.hasObject(By.text("验证并连接")))device.findObject(By.scrollable(true))?.scroll(Direction.DOWN,1f)
         val button=device.wait(Until.findObject(By.text("验证并连接")),3000)
         assertNotNull(button);button.click()
@@ -78,7 +78,7 @@ class DeviceSmokeTest {
         context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         assertTrue(device.wait(Until.hasObject(By.text("机器人管理")),5000));Thread.sleep(500)
         assertFalse("管理页恢复前台不能重新录音",recording())
-        device.findObject(By.text("测试唤醒")).click();Thread.sleep(2500)
+        device.findObject(By.text("检查与调试")).click();Thread.sleep(400);device.findObject(By.text("测试唤醒")).click();Thread.sleep(2500)
         var active=JSONObject()
         for(attempt in 0..8) {
             val devices=robotApi.array("/v1/devices")
@@ -182,7 +182,7 @@ class DeviceSmokeTest {
         // 切换同APK家长身份并实际打开首页、资源管理页。
         vault.save("identity",JSONObject().put("mode","parent"))
         context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-        assertTrue(device.wait(Until.hasObject(By.text("家庭小伙伴")),10000))
+        assertTrue(device.wait(Until.hasObject(By.text("家长管理")),10000))
         device.findObject(By.text("资源库")).click()
         assertTrue(device.wait(Until.hasObject(By.text("创建草稿")),5000))
         device.takeScreenshot(File(context.filesDir,"smoke-parent.png"))

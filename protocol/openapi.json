@@ -1119,6 +1119,470 @@
         }
       }
     },
+    "/v1/local/settings": {
+      "post": {
+        "summary": "Local Settings",
+        "operationId": "local_settings_v1_local_settings_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/prompts/defaults": {
+      "get": {
+        "summary": "Prompt Defaults",
+        "operationId": "prompt_defaults_v1_prompts_defaults_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/prompts/versions": {
+      "get": {
+        "summary": "Prompt Versions",
+        "operationId": "prompt_versions_v1_prompts_versions_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/records": {
+      "get": {
+        "summary": "Records",
+        "operationId": "records_v1_records_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "companion",
+                "debug"
+              ],
+              "type": "string",
+              "default": "companion",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clear Records",
+        "operationId": "clear_records_v1_records_delete",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "companion",
+                "debug"
+              ],
+              "type": "string",
+              "default": "companion",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/records/{record_id}": {
+      "delete": {
+        "summary": "Delete Record",
+        "operationId": "delete_record_v1_records__record_id__delete",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Record Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/debug/turn": {
+      "post": {
+        "summary": "Debug Turn",
+        "operationId": "debug_turn_v1_debug_turn_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebugTurn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/debug/recognize": {
+      "post": {
+        "summary": "Debug Recognize",
+        "operationId": "debug_recognize_v1_debug_recognize_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_debug_recognize_v1_debug_recognize_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/records/{record_id}/speech": {
+      "post": {
+        "summary": "Record Speech",
+        "operationId": "record_speech_v1_records__record_id__speech_post",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Record Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/debug/speech": {
+      "post": {
+        "summary": "Debug Speech",
+        "operationId": "debug_speech_v1_debug_speech_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Speak"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/resources": {
       "post": {
         "summary": "Create",
@@ -2904,6 +3368,20 @@
         ],
         "title": "Ack"
       },
+      "Body_debug_recognize_v1_debug_recognize_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_debug_recognize_v1_debug_recognize_post"
+      },
       "Body_recognize_book_v1_books_recognize_post": {
         "properties": {
           "file": {
@@ -2985,6 +3463,12 @@
       },
       "Config": {
         "properties": {
+          "prompts": {
+            "$ref": "#/components/schemas/Prompts"
+          },
+          "history": {
+            "$ref": "#/components/schemas/HistoryPolicy"
+          },
           "nickname": {
             "type": "string",
             "maxLength": 20,
@@ -3128,6 +3612,50 @@
         ],
         "title": "Control"
       },
+      "DebugTurn": {
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "title": "Sessionid"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "promptKind": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "english",
+              "story",
+              "visual"
+            ],
+            "title": "Promptkind",
+            "default": "daily"
+          },
+          "prompts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Prompts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sessionId",
+          "text"
+        ],
+        "title": "DebugTurn"
+      },
       "DownloadState": {
         "properties": {
           "revisionId": {
@@ -3219,6 +3747,21 @@
       },
       "Heartbeat": {
         "properties": {
+          "playback": {
+            "$ref": "#/components/schemas/PlaybackStatus"
+          },
+          "wakeName": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Wakename",
+            "default": ""
+          },
+          "wakeVersion": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Wakeversion",
+            "default": 0
+          },
           "status": {
             "type": "string",
             "maxLength": 40,
@@ -3254,6 +3797,28 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Heartbeat"
+      },
+      "HistoryPolicy": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "days": {
+            "type": "integer",
+            "enum": [
+              7,
+              30,
+              90
+            ],
+            "title": "Days",
+            "default": 7
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HistoryPolicy"
       },
       "Interaction": {
         "properties": {
@@ -3371,6 +3936,34 @@
           "playlistId"
         ],
         "title": "ListeningPlan"
+      },
+      "LocalSettings": {
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "title": "Requestid"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expectedversion"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requestId",
+          "expectedVersion",
+          "settings"
+        ],
+        "title": "LocalSettings"
       },
       "Lookup": {
         "properties": {
@@ -3654,6 +4247,60 @@
         ],
         "title": "PairDecision"
       },
+      "PlaybackStatus": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "playing",
+              "paused",
+              "loading"
+            ],
+            "title": "State",
+            "default": "idle"
+          },
+          "resourceId": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Resourceid",
+            "default": ""
+          },
+          "revisionId": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Revisionid",
+            "default": ""
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Title",
+            "default": ""
+          },
+          "positionMs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Positionms",
+            "default": 0
+          },
+          "segment": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Segment",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PlaybackStatus"
+      },
       "Playlist": {
         "properties": {
           "name": {
@@ -3799,6 +4446,37 @@
           "seq"
         ],
         "title": "Progress"
+      },
+      "Prompts": {
+        "properties": {
+          "daily": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Daily"
+          },
+          "english": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "English"
+          },
+          "story": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Story"
+          },
+          "visual": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Visual"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Prompts"
       },
       "Publish": {
         "properties": {
@@ -4184,6 +4862,15 @@
       },
       "Voice": {
         "properties": {
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "high"
+            ],
+            "title": "Quality",
+            "default": "high"
+          },
           "zh": {
             "type": "string",
             "maxLength": 80,

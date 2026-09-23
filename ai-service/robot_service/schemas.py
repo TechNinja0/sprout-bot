@@ -2,11 +2,10 @@ from datetime import date
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
-
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+from .prompt_config import Prompts
+from .schemas_base import Strict
 
 
 class Interval(Strict):
@@ -53,6 +52,7 @@ class Profile(Strict):
 
 
 class Voice(Strict):
+    quality: Literal["standard", "high"] = "high"
     zh: str = Field(default="default", max_length=80)
     en: str = Field(default="default", max_length=80)
     story: str = Field(default="default", max_length=80)
@@ -92,7 +92,14 @@ class Interaction(Strict):
     expressionIntensity: Literal["gentle", "normal"] = "gentle"
 
 
+class HistoryPolicy(Strict):
+    enabled: bool = False
+    days: Literal[7, 30, 90] = 7
+
+
 class Config(Strict):
+    prompts: Prompts = Field(default_factory=Prompts)
+    history: HistoryPolicy = Field(default_factory=HistoryPolicy)
     nickname: str = Field(default="小伙伴", min_length=1, max_length=20)
 
     @field_validator("nickname")
@@ -159,7 +166,20 @@ class FailureCounts(Strict):
     )
 
 
+class PlaybackStatus(Strict):
+    state: Literal["idle", "playing", "paused", "loading"] = "idle"
+    resourceId: str = Field(default="", max_length=64)
+    revisionId: str = Field(default="", max_length=64)
+    title: str = Field(default="", max_length=200)
+    positionMs: int = Field(default=0, ge=0)
+    segment: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+
+
 class Heartbeat(Strict):
+    playback: PlaybackStatus = Field(default_factory=PlaybackStatus)
+    wakeName: str = Field(default="", max_length=20)
+    wakeVersion: int = Field(default=0, ge=0)
     status: str = Field(default="standby", max_length=40)
     appliedVersion: int = Field(default=0, ge=0)
     camera: bool = False

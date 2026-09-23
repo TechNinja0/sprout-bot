@@ -1,0 +1,14 @@
+# 前提：本机已经切换到已配对的家长身份，不清空已有数据。
+appId: org.familyrobot.app
+---
+- launchApp
+- tapOn: "设置"
+- tapOn: "主题颜色"
+- tapOn: "浅色"
+- assertVisible: "明亮背景 · 深绿强调色"
+- takeScreenshot: "v8-light"
+- tapOn: "深色"
+- assertVisible: "深色背景 · 薄荷绿强调色"
+- takeScreenshot: "v8-dark"
+- back
+- assertVisible: "小伙伴的个性"

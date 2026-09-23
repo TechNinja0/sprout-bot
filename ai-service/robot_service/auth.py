@@ -233,7 +233,10 @@ def config_get(robot_id: str, request: Request, user=Depends(principal)):
     row = request.app.state.store.one(
         "SELECT * FROM configs WHERE robot_id=?", (robot_id,)
     )
-    return {"version": row["version"], "config": json.loads(row["body"])}
+    return {
+        "version": row["version"],
+        "config": Config.model_validate_json(row["body"]).model_dump(mode="json"),
+    }
 
 
 @router.post("/robots/{robot_id}/config")
@@ -342,6 +345,20 @@ def ack(command_id: str, body: Ack, request: Request, user=Depends(robot)):
         if current != row["expected"] or (body.applied and body.version != current + 1):
             fail(409, "应用版本不匹配")
         if body.applied:
+            previous = db.execute(
+                "SELECT body FROM configs WHERE robot_id=?", (user["id"],)
+            ).fetchone()[0]
+            old_prompts = Config.model_validate_json(previous).prompts.model_dump()
+            new_prompts = Config.model_validate_json(row["body"]).prompts.model_dump()
+            if old_prompts != new_prompts:
+                db.execute(
+                    "INSERT OR IGNORE INTO prompt_versions VALUES(?,?,?,?)",
+                    (user["id"], current, dumps(old_prompts), time.time()),
+                )
+                db.execute(
+                    "DELETE FROM prompt_versions WHERE robot_id=? AND version NOT IN (SELECT version FROM prompt_versions WHERE robot_id=? ORDER BY version DESC LIMIT 20)",
+                    (user["id"], user["id"]),
+                )
             db.execute(
                 "UPDATE configs SET version=?,body=? WHERE robot_id=?",
                 (body.version, row["body"], user["id"]),
