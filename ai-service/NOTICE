@@ -1,0 +1,7 @@
+Family Robot Service 第三方内容说明
+
+robot_service/data/kws-tokens.txt 来自 k2-fsa/sherpa-onnx 的中文 KWS wenetspeech-3.3M-2024-01-01 模型包。该模型包 README 标示 Apache-2.0，完整许可附于 licenses/sherpa-onnx-APACHE-2.0.txt；此词表不适用本项目自有源码 MIT 许可。
+
+来源：https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models
+模型包和词表哈希见源码仓库 scripts/models.lock.json。
+本 wheel 不捆绑模型权重、Android AAR 或其他 Python 发行包；独立安装的第三方依赖各自许可仍需保留。

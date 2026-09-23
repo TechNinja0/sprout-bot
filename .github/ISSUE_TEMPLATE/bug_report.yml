@@ -1,0 +1,24 @@
+name: 问题报告
+description: 可复现故障与已脱敏证据
+title: "[问题] "
+body:
+  - type: markdown
+    attributes:
+      value: "安全漏洞请遵循 SECURITY.md 使用私密渠道；公开报告不包含可利用细节、令牌或家庭资料。"
+  - type: input
+    id: version
+    attributes:
+      label: 版本、手机型号、Android版本、服务系统
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤、预期行为与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏诊断
+      description: 不上传令牌、恢复材料、儿童音视频、家庭书稿或聊天原文。

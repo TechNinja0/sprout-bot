@@ -1,0 +1,38 @@
+name: check
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  service-and-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: python -m venv ai-service/.venv
+      - run: ai-service/.venv/bin/pip install -r ai-service/requirements-lock.txt
+      - run: ai-service/.venv/bin/pip install --no-deps -e ai-service
+      - run: ai-service/.venv/bin/python -m ruff check ai-service/robot_service ai-service/tests scripts
+      - run: ai-service/.venv/bin/python -m pytest ai-service/tests -q
+      - run: c++ -std=c++17 -Wall -Wextra -Werror -Imotion-firmware/include motion-firmware/tests/safety_test.cpp -o /tmp/safety-test && /tmp/safety-test
+      - run: android-app/gradlew -p android-app :core:test
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - run: python scripts/install_models.py --only kws,vad,aar
+      - run: android-app/gradlew -p android-app :app:assembleDebug :app:lintDebug

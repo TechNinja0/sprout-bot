@@ -1,0 +1,8 @@
+# 统一源码换行，Windows 批处理文件检出为 CRLF。
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# 应用与文档必需的二进制资源不进行文本转换。
+*.jar binary
+*.png binary
+*.wav binary

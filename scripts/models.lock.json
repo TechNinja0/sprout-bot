@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "id": "kws",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2",
+      "sha256": "b2f7c89690dc8ce4c6ed6afeab7cd800c36ad1421fb6b6302b4a4b194cf7f35f",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "aar",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar",
+      "sha256": "633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96",
+      "license": "Apache-2.0; bundled dependencies separate"
+    },
+    {
+      "id": "asr-base",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2",
+      "sha256": "911b2083efd7c0dca2ac3b358b75222660dc09fb716d64fbfc417ba6c99ff3de",
+      "license": "MIT"
+    },
+    {
+      "id": "asr-small",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-small.tar.bz2",
+      "sha256": "486a46afbb7ba798507190ffe02fea2dd726049af212e774537efac6afb210a6",
+      "license": "MIT"
+    },
+    {
+      "id": "tts",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+      "sha256": "c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298",
+      "license": "Apache-2.0 weights; espeak-ng GPL-3.0"
+    },
+    {
+      "id": "ollama-macos-arm64",
+      "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-darwin.tgz",
+      "sha256": "f33b2a5aa59bc6c961ed3ec23ba9dc646ca6d99ced8d2a0d46eb3a522167dd3f",
+      "license": "MIT"
+    },
+    {
+      "id": "asr-base-comparison",
+      "url": "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/config.json",
+      "sha256": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+      "license": "MIT",
+      "destination": "faster-whisper-base/config.json"
+    },
+    {
+      "id": "asr-base-comparison",
+      "url": "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/model.bin",
+      "sha256": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+      "license": "MIT",
+      "destination": "faster-whisper-base/model.bin"
+    },
+    {
+      "id": "asr-base-comparison",
+      "url": "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "license": "MIT",
+      "destination": "faster-whisper-base/tokenizer.json"
+    },
+    {
+      "id": "asr-base-comparison",
+      "url": "https://huggingface.co/Systran/faster-whisper-base/resolve/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+      "license": "MIT",
+      "destination": "faster-whisper-base/vocabulary.txt"
+    },
+    {
+      "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/config.json",
+      "sha256": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
+      "destination": "faster-whisper-small/config.json",
+      "id": "asr",
+      "license": "MIT"
+    },
+    {
+      "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/model.bin",
+      "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+      "destination": "faster-whisper-small/model.bin",
+      "id": "asr",
+      "license": "MIT"
+    },
+    {
+      "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "destination": "faster-whisper-small/tokenizer.json",
+      "id": "asr",
+      "license": "MIT"
+    },
+    {
+      "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/536b0662742c02347bc0e980a01041f333bce120/vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+      "destination": "faster-whisper-small/vocabulary.txt",
+      "id": "asr",
+      "license": "MIT"
+    },
+    {
+      "url": "https://huggingface.co/mlx-community/whisper-large-v3-turbo-8bit/resolve/62103fc276a35fdc76e318f314d8ff47987fba89/config.json",
+      "sha256": "f79a081378ac52606707abdfdae4a9cc41410f47ffc2ad2cd582dc8cc8e29e6f",
+      "destination": "mlx-whisper-turbo-8bit/config.json",
+      "id": "asr-mlx",
+      "license": "Apache-2.0 conversion; MIT original Whisper"
+    },
+    {
+      "url": "https://huggingface.co/mlx-community/whisper-large-v3-turbo-8bit/resolve/62103fc276a35fdc76e318f314d8ff47987fba89/model.safetensors",
+      "sha256": "1dffa280543756dcdd5324250c811c2a1ba8654c363d7d0b1a5da2b1563629df",
+      "destination": "mlx-whisper-turbo-8bit/weights.safetensors",
+      "id": "asr-mlx",
+      "license": "Apache-2.0 conversion; MIT original Whisper"
+    },
+    {
+      "url": "https://huggingface.co/mlx-community/whisper-large-v3-turbo-8bit/resolve/62103fc276a35fdc76e318f314d8ff47987fba89/multilingual.tiktoken",
+      "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+      "destination": "mlx-whisper-turbo-8bit/multilingual.tiktoken",
+      "id": "asr-mlx",
+      "license": "Apache-2.0 conversion; MIT original Whisper"
+    },
+    {
+      "url": "https://huggingface.co/mlx-community/whisper-large-v3-turbo-8bit/resolve/62103fc276a35fdc76e318f314d8ff47987fba89/README.md",
+      "sha256": "011c6fd21d6c446a911b27bb4f7195117f55de9bb2c6471fcad086b7797bff7b",
+      "destination": "mlx-whisper-turbo-8bit/README.md",
+      "id": "asr-mlx",
+      "license": "Apache-2.0 conversion; MIT original Whisper"
+    },
+    {
+      "id": "vad",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+      "license": "MIT (Silero); sherpa export Apache-2.0",
+      "destination": "silero-vad/silero_vad.onnx"
+    }
+  ],
+  "llm": {
+    "name": "qwen3.5:2b",
+    "manifestSha256": "324d162be6ca5629ae4517c8710434d0bd2d665bc94dbad46e9af8fbf8a2f0df",
+    "weightSha256": "b709d81508a078a686961de6ca07a953b895d9b286c46e17f00fb267f4f2d297",
+    "license": "Apache-2.0"
+  },
+  "vlm": {
+    "name": "qwen3.5:4b",
+    "manifestSha256": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+    "weightSha256": "81fb60c7daa80fc1123380b98970b320ae233409f0f71a72ed7b9b0d62f40490",
+    "license": "Apache-2.0",
+    "source": "https://huggingface.co/Qwen/Qwen3.5-4B",
+    "decision": "同一原创图/结构下2B把勺柄误作独立物体，4B能识别完整勺子并保留双物体消歧；用途热态4.106秒，初次加载25.886秒，启用独立视觉预热。仅是开发回归，实体物品及端到端延迟仍需验收。"
+  },
+  "asrSource": {
+    "repository": "Systran/faster-whisper-small",
+    "commit": "536b0662742c02347bc0e980a01041f333bce120",
+    "engine": "faster-whisper 1.2.1 / CPU int8 / 4 threads",
+    "decision": "base在中文短问句中误识别英语/苹果等词；small配合通用简体中文与英语提示明显改善，真实儿童仍待验。"
+  },
+  "asrAppleSource": {
+    "repository": "mlx-community/whisper-large-v3-turbo-8bit",
+    "commit": "62103fc276a35fdc76e318f314d8ff47987fba89",
+    "engine": "mlx-whisper 0.4.3 / 8bit / Apple Silicon",
+    "decision": "本机Apple M4/32GB推荐使用MLX单窗口编码复用+Silero VAD，保留CPU跨平台后端；真实儿童声学仍需单独验收。"
+  }
+}

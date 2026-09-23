@@ -1,0 +1,77 @@
+# 系统文件与编辑器本地状态
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 本地资料、验证证据及工具缓存
+/.artifacts/
+/.tools/
+/ui-audit/artifacts/
+
+# Python 环境、缓存、测试报告与分发产物
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+*.egg-info/
+build/
+dist/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Android / Gradle 本机配置与构建产物；保留 Gradle Wrapper JAR
+.gradle/
+.kotlin/
+local.properties
+*.apk
+*.aab
+*.aar
+*.hprof
+/android-app/app/src/main/assets/models/
+
+# 家庭运行数据、模型、凭据与日志
+.env
+.env.*
+!.env.example
+!.env.*.example
+runtime/
+models/
+secrets/
+credentials/
+*.keystore
+*.jks
+*.pem
+*.key
+*.p12
+*.pfx
+*.db
+*.db-wal
+*.db-shm
+*.sqlite*
+*.log
+*.onnx
+*.safetensors
+*.gguf
+*.pt
+*.pth
+
+# 由源码编译的本地 OCR 可执行文件
+/ai-service/native/ocr
+
+# 文档导出件与历史资料包仅保留在本地，以 Markdown 为公开文档来源
+/docs/**/*.docx
+/docs/**/*.xlsx
+/docs/**/*.pdf
+/docs/**/*.zip

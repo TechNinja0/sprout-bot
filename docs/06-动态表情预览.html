@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>机器人纯表情预览 · 设计模拟</title>
+<style>
+:root{color-scheme:dark;--bg:#080f16;--eye:#a2f4e5;--ink:#0a2631}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg)}body{font-family:system-ui,sans-serif}#stage{width:100%;height:100%;display:grid;place-items:center;touch-action:manipulation}svg{display:block;width:100%;height:100%;max-height:100vh}button{font:inherit;cursor:pointer}#review{position:fixed;inset:auto 20px 20px 20px;background:#14232deF;border:1px solid #3a555f;border-radius:18px;padding:22px;color:#dfeeee;max-width:860px;margin:auto;backdrop-filter:blur(20px)}#review[hidden]{display:none}h1{font-size:18px;margin:0 0 8px}p{color:#a6bfc7;font-size:13px;line-height:1.65;margin:8px 0 16px}.controls{display:flex;gap:8px;flex-wrap:wrap}.controls button{padding:9px 15px;border:1px solid #405b65;border-radius:9px;background:transparent;color:#e0f0f1}.controls button[aria-pressed=true]{background:#a2f4e5;color:#09202a;border-color:#a2f4e5}.tools{margin-top:14px}.tools button{font-size:13px}#now{margin-top:12px;font-size:13px;color:#a2f4e5}#close{position:absolute;right:18px;top:14px;border:0;background:transparent;color:#a6bfc7;font-size:24px} @media(prefers-reduced-motion:reduce){svg{filter:none}}
+</style>
+</head>
+<body>
+<main id="stage" role="img" aria-label="机器人表情设计模拟">
+<svg id="faceSvg" viewBox="0 0 1000 600" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <clipPath id="clipL"><rect id="maskL" x="-83" y="-85" width="166" height="170" rx="70"/></clipPath>
+  <clipPath id="clipR"><rect id="maskR" x="-83" y="-85" width="166" height="170" rx="70"/></clipPath>
+  <clipPath id="clipM"><path id="maskM"/></clipPath>
+</defs>
+<g id="head">
+<g id="brows" fill="none" stroke="#a2f4e5" stroke-width="11" stroke-linecap="round"><path id="browL"/><path id="browR"/></g>
+<g id="eyeL" transform="translate(335 270)">
+  <g id="openL" clip-path="url(#clipL)"><rect x="-85" y="-125" width="170" height="250" rx="70" fill="#a2f4e5" filter="url(#glow)"/><g id="pupilL"><ellipse rx="40" ry="62" fill="#0a2631"/><ellipse cx="-12" cy="-23" rx="12" ry="15" fill="#f2fffb"/><circle cx="14" cy="17" r="5" fill="#72c6c4"/></g></g>
+  <path id="arcL" d="M-70 12 Q0 -60 70 12" fill="none" stroke="#a2f4e5" stroke-width="19" stroke-linecap="round"/>
+</g>
+<g id="eyeR" transform="translate(665 270)">
+  <g id="openR" clip-path="url(#clipR)"><rect x="-85" y="-125" width="170" height="250" rx="70" fill="#a2f4e5" filter="url(#glow)"/><g id="pupilR"><ellipse rx="40" ry="62" fill="#0a2631"/><ellipse cx="-12" cy="-23" rx="12" ry="15" fill="#f2fffb"/><circle cx="14" cy="17" r="5" fill="#72c6c4"/></g></g>
+  <path id="arcR" d="M-70 12 Q0 -60 70 12" fill="none" stroke="#a2f4e5" stroke-width="19" stroke-linecap="round"/>
+</g>
+<g id="cheeks" fill="#eea4b1"><ellipse cx="238" cy="365" rx="28" ry="11"/><ellipse cx="762" cy="365" rx="28" ry="11"/></g>
+<path id="smile" fill="none" stroke="#a2f4e5" stroke-width="11" stroke-linecap="round"/>
+<g id="mouth"><path id="mouthShape" fill="#a2f4e5"/><g clip-path="url(#clipM)"><ellipse id="innerM" cx="500" cy="435" rx="55" ry="40" fill="#102632"/><ellipse id="tongue" cx="500" cy="472" rx="42" ry="23" fill="#eea4b1"/></g></g>
+<g id="tears" fill="#78cbf0"><path id="tearL" d="M0 0 C-7 16 -15 23 -15 34 A15 15 0 0 0 15 34 C15 23 7 16 0 0Z"/><path id="tearR" d="M0 0 C-7 16 -15 23 -15 34 A15 15 0 0 0 15 34 C15 23 7 16 0 0Z"/></g>
+</g></svg>
+</main>
+<aside id="review" hidden>
+<button id="close" aria-label="关闭评审面板">×</button><h1>表情与会话流程评审</h1>
+<p>这是离线设计模拟，没有真实录音、摄像头或 AI。面板仅供评审；机器人日常屏幕只显示脸。D 开关面板，F 全屏，空格模拟叫醒，Esc 隐藏面板。</p>
+<div class="controls" id="states"></div>
+<div class="controls tools"><button id="autoplay">暂停轮播</button><button id="scenario">演示连续会话</button><button id="wake">模拟叫醒</button><button id="rest">模拟休息</button><button id="reduced">减少动态</button></div>
+<div id="now" role="status"></div>
+</aside>
+<script>
+'use strict';
+const MODES={
+ standby:{label:'待机',open:.48,gx:0,gy:0,smile:20,blush:0,lean:0},
+ listening:{label:'听你说',open:1.08,gx:-4,gy:-1,smile:9,blush:0,lean:-4},
+ thinking:{label:'思考',open:.75,gx:21,gy:-24,smile:0,blush:0,lean:4},
+ observing:{label:'看东西',open:.68,gx:0,gy:8,smile:0,blush:0,lean:0},
+ speaking:{label:'说话',open:.92,gx:0,gy:0,smile:22,blush:.08,lean:0},
+ singing:{label:'唱歌',open:.86,gx:0,gy:-5,smile:28,blush:.38,lean:0},
+ storytelling:{label:'讲故事',open:.9,gx:8,gy:0,smile:24,blush:.12,lean:0},
+ happy:{label:'开心',open:.81,gx:0,gy:0,smile:54,blush:.48,lean:-2},
+ laughing:{label:'大笑',open:0,gx:0,gy:0,smile:60,blush:.55,lean:0},
+ hurt:{label:'委屈',open:.72,gx:0,gy:17,smile:-25,blush:.2,lean:0},
+ crying:{label:'大哭',open:0,gx:0,gy:0,smile:-40,blush:.16,lean:0},
+ sleeping:{label:'休息',open:0,gx:0,gy:0,smile:7,blush:0,lean:0}
+};
+const $=id=>document.getElementById(id), names=Object.keys(MODES);
+let mode='standby',auto=true,reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,started=performance.now(),lastChange=started,timers=[];
+let vals={...MODES.standby},sim={active:false,camera:false,turns:0},scenarioIndex=-1;
+const panel=$('review');
+function clearScenario(){timers.forEach(clearTimeout);timers=[];scenarioIndex=-1;}
+function state(s){if(!MODES[s])return;mode=s;lastChange=performance.now();document.body.dataset.state=s;document.title=MODES[s].label+' · 机器人表情设计模拟';$('stage').setAttribute('aria-label',MODES[s].label+'，设计动画模拟');document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===s)));report();}
+function report(){$('now').textContent='当前：'+MODES[mode].label+' · 模拟会话 '+(sim.active?'进行中':'已结束')+' · 模拟相机 '+(sim.camera?'开启':'关闭')+' · 已回答 '+sim.turns+' 轮';$('autoplay').textContent=auto?'暂停轮播':'自动轮播';$('reduced').setAttribute('aria-pressed',String(reduced));}
+function reset(){clearScenario();auto=false;sim={active:false,camera:false,turns:0};state('sleeping');}
+function wake(){clearScenario();auto=false;sim={active:true,camera:true,turns:0};state('listening');}
+function scenario(){clearScenario();auto=false;sim={active:true,camera:true,turns:0};const seq=[['listening',2200],['thinking',1700],['speaking',3100],['listening',2400],['observing',2400],['speaking',3300],['listening',2300],['storytelling',3700],['happy',2000],['sleeping',2500]];let delay=0;seq.forEach(([s,ms],i)=>{timers.push(setTimeout(()=>{scenarioIndex=i;if(s==='speaking'||s==='storytelling')sim.turns++;if(s==='sleeping'){sim.active=false;sim.camera=false;}state(s);},delay));delay+=ms;});}
+for(const s of names){const b=document.createElement('button');b.textContent=MODES[s].label;b.dataset.mode=s;b.setAttribute('aria-pressed','false');b.onclick=()=>{clearScenario();auto=false;state(s);};$('states').append(b);}
+$('close').onclick=()=>panel.hidden=true;$('autoplay').onclick=()=>{clearScenario();auto=!auto;lastChange=performance.now();report();};$('scenario').onclick=scenario;$('wake').onclick=wake;$('rest').onclick=reset;$('reduced').onclick=()=>{reduced=!reduced;report();};
+document.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='d')panel.hidden=!panel.hidden;if(e.key==='Escape')panel.hidden=true;if(e.key===' '){e.preventDefault();wake();}if(e.key.toLowerCase()==='f'&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(()=>{});});
+let hold;$('stage').addEventListener('pointerdown',e=>{if(e.clientX>innerWidth*.8&&e.clientY<innerHeight*.2)hold=setTimeout(()=>{panel.hidden=false;},2000);});for(const ev of ['pointerup','pointercancel','pointerleave'])$('stage').addEventListener(ev,()=>clearTimeout(hold));$('stage').addEventListener('dblclick',()=>{clearScenario();auto=false;state(sim.active?'listening':'standby');});
+function attr(id,name,value){$(id).setAttribute(name,String(value));}
+function draw(now){let t=(now-started)/1000;if(auto&&now-lastChange>3900)state(names[(names.indexOf(mode)+1)%names.length]);const goal=MODES[mode];for(const k of ['open','gx','gy','smile','blush','lean'])vals[k]+=(goal[k]-vals[k])*.1;
+ const wave=reduced?0:Math.sin(t*1.35),talk=['speaking','singing','storytelling'].includes(mode),closed=['laughing','crying','sleeping'].includes(mode);
+ let lean=vals.lean+(reduced?0:mode==='singing'?Math.sin(t*3.5)*4:mode==='storytelling'?Math.sin(t*1.6)*2:0),bob=reduced?0:mode==='laughing'?Math.sin(t*15)*6:mode==='crying'?Math.sin(t*12)*3:wave*2;
+ attr('head','transform',`translate(0 ${bob}) rotate(${lean} 500 300)`);
+ const blinkPhase=t%5.3,blink=(!closed&&!reduced&&blinkPhase<.15)?Math.abs(blinkPhase-.075)/.075:1;
+ for(const side of ['L','R']){let op=vals.open*blink;if(mode==='thinking'&&side==='R')op*=.68;const h=Math.max(8,170*op);attr('mask'+side,'y',-h/2);attr('mask'+side,'height',h);attr('mask'+side,'rx',Math.min(70,h/2));attr('open'+side,'opacity',closed?0:1);attr('arc'+side,'opacity',closed?1:0);attr('arc'+side,'d',mode==='sleeping'?'M-65 0 Q0 48 65 0':mode==='crying'?'M-63 8 Q0 -28 63 8':'M-68 12 Q0 -57 68 12');attr('pupil'+side,'transform',`translate(${vals.gx+(mode==='standby'?wave*6:0)} ${vals.gy})`);}
+ let sad=mode==='hurt'||mode==='crying';attr('browL','d',sad?'M265 171 Q327 172 385 142':mode==='thinking'?'M264 151 Q323 119 389 145':'M269 154 Q330 142 389 154');attr('browR','d',sad?'M615 142 Q673 172 735 171':'M611 154 Q674 142 731 154');attr('brows','opacity',sad?.85:mode==='thinking'?.48:mode==='storytelling'?.3:0);
+ attr('cheeks','opacity',vals.blush);
+ let mouthOpen=mode==='laughing'?72:mode==='crying'?61:mode==='observing'?22:talk?(reduced?28:15+Math.abs(Math.sin(t*(mode==='singing'?5:9)))*37):0;
+ let width=mode==='laughing'?77:mode==='crying'?54:mode==='observing'?20:talk?43:46;
+ let y=mode==='hurt'?429:413,base=mode==='crying'?12:0;
+ const md=`M${500-width} ${y+base} Q500 ${y-9} ${500+width} ${y+base} C${500+width} ${y+mouthOpen},${500-width} ${y+mouthOpen},${500-width} ${y+base} Z`;
+ attr('mouthShape','d',md);attr('maskM','d',md);attr('mouth','opacity',mouthOpen>0?1:0);attr('innerM','cy',y+mouthOpen*.36);attr('innerM','rx',width*.76);attr('innerM','ry',mouthOpen*.36);attr('tongue','cy',y+mouthOpen*.8);attr('tongue','rx',width*.54);
+ attr('smile','opacity',mouthOpen>0?0:1);attr('smile','d',`M${452+(mode==='thinking'?20:0)} 414 Q${500+(mode==='thinking'?20:0)} ${414+vals.smile} ${548+(mode==='thinking'?20:0)} 414`);
+ attr('tears','opacity',mode==='crying'?1:0);const fall=reduced?25:(t*115)%112;attr('tearL','transform',`translate(275 ${315+fall})`);attr('tearR','transform',`translate(725 ${315+(fall+52)%112})`);
+ requestAnimationFrame(draw);
+}
+window.robotPreview={setState:s=>{clearScenario();auto=false;state(s);},wake,rest:reset,scenario,getState:()=>({mode,auto,...sim}),states:names};
+state('standby');requestAnimationFrame(draw);
+</script>
+</body></html>

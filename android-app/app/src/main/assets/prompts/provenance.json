@@ -1,0 +1,90 @@
+{
+  "wake": {
+    "text": "我在。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "wake_listen": {
+    "text": "我听着呢。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "wake_here": {
+    "text": "在呢，你说。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "wake_touch": {
+    "text": "嗯，我在呢。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "pet": {
+    "text": "嘿嘿。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "tickle": {
+    "text": "哎呀，好痒！",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "thinking": {
+    "text": "我想想。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "rest": {
+    "text": "我们休息一下吧。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "offline": {
+    "text": "我现在还不能回答，可以先听已经下载的故事。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "unclear": {
+    "text": "我没听清，可以再说一遍。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  },
+  "camera_unavailable": {
+    "text": "相机暂时用不了，我们可以说话。",
+    "backend": "qwen3-mlx",
+    "voice": "Serena",
+    "style": "gentle",
+    "renderProfile": "qwen3-1.7b-customvoice-8bit:41d3337e8b7f2843a75841595fc14e4b9a7a4b96:mlx-audio-0.5.5:render-1",
+    "sampleRate": 24000
+  }
+}
