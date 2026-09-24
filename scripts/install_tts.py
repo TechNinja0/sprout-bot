@@ -26,6 +26,20 @@ def verified(path, entry):
     return h.hexdigest() == (entry["sha256"] or entry["gitBlob"])
 
 
+def check(models):
+    directory = models / LOCK["directory"]
+    missing = [
+        f["path"] for f in LOCK["files"] if not verified(directory / f["path"], f)
+    ]
+    try:
+        installed = json.loads((directory / "installed.json").read_text())
+    except (OSError, ValueError):
+        installed = {}
+    if installed != {"repo": LOCK["repo"], "revision": LOCK["revision"]}:
+        missing.append("installed.json")
+    return missing
+
+
 def install(models, endpoint):
     directory = models / LOCK["directory"]
     directory.mkdir(parents=True, exist_ok=True)
@@ -130,5 +144,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", type=Path, default=ROOT / "runtime/models")
     parser.add_argument("--endpoint", default="https://huggingface.co")
+    parser.add_argument("--check", action="store_true", help="只校验，不下载或修改文件")
     args = parser.parse_args()
+    if args.check:
+        missing = check(args.models)
+        for name in missing:
+            print("缺失或校验失败：" + name)
+        raise SystemExit(1 if missing else 0)
     install(args.models, args.endpoint)

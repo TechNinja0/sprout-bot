@@ -2,6 +2,8 @@
 
 Python3.12、FastAPI、SQLite WAL，绑定受信TLS的设备角色。只调用本机模型，默认不开启任何云端文本/图像/音频通道。它不替代Android即时停止和使用时段执行。
 
+全新 Apple Silicon Mac 推荐使用 `bash scripts/setup_mac.sh` 一键部署服务端；`bash scripts/setup_mac.sh --check` 可重复执行只读检查。安装范围、参数和系统确认步骤见 [Mac 服务端一键部署](../docs/engineering/Mac服务端一键部署.md)。以下为已有基础环境时的分步安装方式。
+
 ```sh
 # 在仓库根目录
 bash scripts/bootstrap_service.sh
