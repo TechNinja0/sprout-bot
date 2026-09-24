@@ -157,7 +157,7 @@ class MainActivity:ComponentActivity() {
         var message by remember { mutableStateOf("") };var pairing by remember { mutableStateOf("") };var requests by remember { mutableStateOf(JSONArray()) }
         var pairingImage by remember { mutableStateOf<Bitmap?>(null) };var showPairing by remember { mutableStateOf(false) }
         var pairingDeadline by remember { mutableLongStateOf(0L) };var creatingPairing by remember { mutableStateOf(false) }
-        var devices by remember { mutableStateOf(JSONArray()) };var pin by remember { mutableStateOf("") }
+        var devices by remember { mutableStateOf(JSONArray()) };var pin by remember { mutableStateOf("") };var oldPin by remember { mutableStateOf("") };var repeatPin by remember { mutableStateOf("") }
         val permissions=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { message="权限已更新，返回机器人后生效" }
         val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if(uri!=null)contentResolver.openOutputStream(uri)?.use { it.write(pairing.toByteArray()) } }
         fun run(action:suspend ()->Unit) { scope.launch { try { action() } catch(e:Exception) { message=e.message ?: "操作失败" } } }
@@ -180,68 +180,102 @@ class MainActivity:ComponentActivity() {
                 showPairing=false
                 run { requests=withContext(Dispatchers.IO) { api.array("/v1/pairing/pending") } }
             })
+        var selectedOffline by remember{mutableStateOf<Pair<String,String>?>(null)}
+        var selectedRole by remember{mutableStateOf("robot")}
+        var revokeDevice by remember { mutableStateOf<JSONObject?>(null) }
+        revokeDevice?.let{d->AlertDialog(onDismissRequest={revokeDevice=null},title={Text("解除家长绑定？")},text={Text("${d.optString("name")}将失去管理权限，需要重新扫码才能绑定。")},confirmButton={TextButton(onClick={revokeDevice=null;run{withContext(Dispatchers.IO){api.json("/v1/devices/${d.getString("id")}","DELETE");devices=api.array("/v1/devices")};message="已解除绑定"}}){Text("解除绑定")}},dismissButton={TextButton(onClick={revokeDevice=null}){Text("取消")}})}
         var page by remember { mutableStateOf("首页") }
         var chat by remember { mutableStateOf(false) }
+        LaunchedEffect(page){if(page=="家长与配对")run{withContext(Dispatchers.IO){requests=api.array("/v1/pairing/pending");devices=api.array("/v1/devices")}}}
         fun go(name:String){stopPreview();message="";page=name}
-        BackHandler { if(chat)chat=false else if(page=="首页")close() else go("首页") }
-        if(chat){DebugChat(robot.connection,back={chat=false},play={playPreview(it)});return}
+        fun back(){if(page=="首页")close() else go(if(page in listOf("修改 PIN","主题颜色","唤醒与互动","AI 提示词","声音","隐私与权限","切换身份"))"设置" else if(page=="离线详情")"离线内容" else "首页")}
+        BackHandler { if(chat){chat=false;go("首页")} else back() }
+        if(chat){DebugChat(robot.connection,back={chat=false;go("首页")},play={playPreview(it)},title="检查与调试",tabs={DiagnosticTabs(true){if(!it)chat=false}},online=robot.online);return}
+        if(page=="服务器连接"){RobotConnectionScreen(robot,{go("首页")},{switch("setup")});return}
         if(page=="主题颜色"){AppearancePage(themeMode,::chooseTheme){go("设置")};return}
         if(page in listOf("唤醒与互动","AI 提示词","声音","隐私与权限")){DeviceSettingsScreen(robot.connection,true,page,{go("设置")},{playPreview(it)});return}
-        Page(if(page=="首页")"机器人管理" else page,message,creatingPairing,onBack={if(page=="首页")close() else go("首页")}) {
+        Page(if(page=="首页")"机器人管理" else if(page=="设置")"小伙伴设置" else if(page=="离线详情")selectedOffline?.second ?: "离线内容" else page,message,creatingPairing,onBack={back()},header=if(page=="检查与调试")({DiagnosticTabs(false){chat=it}}) else null) {
             when(page){
                 "首页" -> {
-                    ConnectionCard(robot.online,"配置版本 ${robot.version}"){go("服务器连接")}
-                    Text("管理中已暂停采集",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
-                    SectionLink("家长与配对","展示二维码，家长手机直接扫码"){go("家长与配对")}
-                    SectionLink("检查与调试","设备自检 · 文字与语音会话"){go("检查与调试")}
-                    SectionLink("使用教程","唤醒、对话、读书与常用手势"){go("使用教程")}
-                    SectionLink("离线内容","播放完整下载的故事与儿歌"){go("离线内容")}
-                    SectionLink("小伙伴设置","主题、唤醒词、提示词与声音"){go("设置")}
-                }
-                "服务器连接" -> {
-                    ConnectionCard(robot.online,"服务器连接与模型能力分别检查")
-                    Text(robot.connection.optString("address"));Text("配置版本 ${robot.version}")
-                    Text("当前生效唤醒词：${robot.appliedWakeName}")
-                    if(robot.appliedWakeName!=robot.config.optString("nickname"))Text("待生效：${robot.config.optString("nickname")}，等待本轮互动结束")
-                    Text(robot.diagnostic);DiagnosticsPanel(robot.connection)
-                    Action("重新检查连接"){run{withContext(Dispatchers.IO){api.checkIdentity()};message="服务器身份验证通过"}}
+                    ConnectionCard(robot.online,if(robot.online)"家庭电脑在线，连接正常。" else "暂时无法访问家庭电脑，在线对话不可用。"){go("服务器连接")}
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("当前状态：${statusLabel(robot.state.name.lowercase())}",fontSize=13.sp);Text("管理中已暂停采集",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    SectionHeading("常用功能")
+                    Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                        FeatureTile("家长与配对","扫码绑定 · 管理家长","qr",Modifier.weight(1f)){go("家长与配对")}
+                        FeatureTile("检查与调试","设备自检 · 会话调试","settings",Modifier.weight(1f)){go("检查与调试")}
+                    }
+                    SectionHeading("使用与设置")
+                    DesignGroup{
+                        DesignRow("使用教程","唤醒、对话与常用手势","book"){go("使用教程")}
+                        DesignRow("离线内容","播放已下载的故事和儿歌","download"){go("离线内容")}
+                        DesignRow("小伙伴设置","唤醒词、AI 提示词、声音与设备","settings",false){go("设置")}
+                    }
                 }
                 "设置" -> {
-                    SectionLink("主题颜色",if(themeMode=="light")"浅色" else "深色"){go("主题颜色")}
-                    for(name in listOf("唤醒与互动","AI 提示词","声音","隐私与权限","修改 PIN"))SectionLink(name){go(name)}
-                    SectionLink("服务器连接","状态与服务能力"){go("服务器连接")}
-                    SectionLink("切换身份","返回本机已有授权身份"){switch("setup")}
+                    SectionHeading("个性与外观")
+                    DesignGroup{
+                        DesignRow("主题颜色",if(themeMode=="light")"浅色" else "深色"){go("主题颜色")}
+                        for(name in listOf("唤醒与互动","AI 提示词","声音","隐私与权限"))DesignRow(name,divider=name!="隐私与权限"){go(name)}
+                    }
+                    SectionHeading("安全与设备")
+                    DesignGroup{DesignRow("修改 PIN","进入机器人管理时验证"){go("修改 PIN")};DesignRow("家长设备","查看与解除绑定","qr",false){go("家长与配对")}}
+                    SectionHeading("本机信息")
+                    InfoRow("当前身份","机器人");InfoRow("应用版本",BuildConfig.VERSION_NAME)
+                    SectionHeading("身份与服务")
+                    DesignGroup{DesignRow("服务器连接","状态与服务地址","server"){go("服务器连接")};DesignRow("切换身份","选择机器人或家长模式","bot",false){go("切换身份")}}
                 }
                 "使用教程" -> RobotTutorial()
                 "检查与调试" -> {
-                    SectionLink("调试","发送文字或语音，查看并回放实际回复"){chat=true}
-            Action("检查麦克风与相机权限") { permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO,Manifest.permission.CAMERA)) }
-            Action("测试唤醒") { close();robot.wake() }
-            Text("本机自检会临时收音3秒、向家庭服务器识别、取一帧画面并播放半秒提示音；不会保存录音、图片和识别文字。")
-            Action(if(robot.selfCheckRunning)"正在自检…" else "开始本机自检",enabled=!robot.selfCheckRunning) { robot.startSelfCheck() }
-            if(robot.selfCheckRunning)Action("停止自检") { robot.cancelSelfCheck() }
-            if(robot.selfCheckMessage.isNotBlank())Text(robot.selfCheckMessage)
-            if(robot.selfCheckTranscript.isNotBlank())Text("临时识别：${robot.selfCheckTranscript}（离开页面清除，不进入报告）")
-            robot.selfCheckReport?.let { HardwareReportSummary(it) }
-            DiagnosticsPanel(robot.connection,robot.selfCheckReport)
-            DisposableEffect(robot) { onDispose { robot.cancelSelfCheck() } }
+                    var consent by remember{mutableStateOf(false)}
+                    Text("目标：这台机器人手机。临时收音最多 3 秒、识别、取新帧、播放半秒测试音；总计不超过 30 秒。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment=Alignment.CenterVertically){Checkbox(consent,{consent=it},enabled=!robot.selfCheckRunning);Text("我已了解临时采集范围")}
+                    FullAction(if(robot.selfCheckRunning)"正在自检…" else "开始本机自检",enabled=consent&&!robot.selfCheckRunning){robot.startSelfCheck()}
+                    if(robot.selfCheckRunning)FullAction("停止自检",secondary=true){robot.cancelSelfCheck()}
+                    if(robot.selfCheckMessage.isNotBlank())Text(robot.selfCheckMessage,fontSize=13.sp)
+                    robot.selfCheckReport?.let { report->DesignGroup{Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){HardwareReportSummary(report);if(robot.selfCheckTranscript.isNotBlank())Text("临时识别：${robot.selfCheckTranscript}");var heard by remember(report){mutableStateOf(false)};if(report.optString("audioOutput")=="played-unconfirmed")Row(verticalAlignment=Alignment.CenterVertically){Checkbox(heard,{heard=it});Text("我在现场听到了测试音")}}} }
+                    Text("不会保存本次录音、画面和识别文字；离开设备检查页会停止采集。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    FullAction("检查麦克风与相机权限",secondary=true){permissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO,Manifest.permission.CAMERA))}
+                    FullAction("测试昵称与唤醒回应",secondary=true){close();robot.wake()}
+                    SectionHeading("运行记录")
+                    InfoRow("当前状态",if(robot.selfCheckRunning)"设备检查中" else "管理中暂停采集")
+                    InfoRow("最近唤醒",mapOf("touch" to "轻点屏幕","keyword" to "唤醒词","local-control" to "本机控制","none" to "暂无记录")[robot.lastWakeSource] ?: robot.lastWakeSource)
+                    InfoRow("最近声音反馈",mapOf("none" to "暂无记录","playing" to "已触发播放","visual-only" to "仅表情回应","muted-output" to "静音")[robot.lastFeedbackResult] ?: robot.lastFeedbackResult)
+                    DetailDisclosure("查看详细诊断"){DiagnosticsPanel(robot.connection,robot.selfCheckReport)}
+                    DisposableEffect(robot){onDispose{robot.cancelSelfCheck()}}
                 }
                 "家长与配对" -> {
-            Action(if(creatingPairing)"正在生成二维码…" else "生成家长配对材料",enabled=!creatingPairing) { generatePairing() }
-            if(pairing.isNotEmpty()) { Action("显示配对二维码") { showPairing=true };Action("保存配对文件（备用）") { export.launch("family-pairing.json") } }
-            Action("刷新待确认配对与设备") { run { withContext(Dispatchers.IO) { requests=api.array("/v1/pairing/pending");devices=api.array("/v1/devices") } } }
-            for(i in 0 until requests.length()) { val p=requests.getJSONObject(i);Text("请求配对：${p.getString("name")}")
-                Row { for(approved in listOf(true,false))Action(if(approved)"亲自确认" else "拒绝") { run { withContext(Dispatchers.IO) { api.json("/v1/pairing/${p.getString("id")}/decision","POST",JSONObject().put("approved",approved)) };message="配对已处理" } } }
-            }
-            for(i in 0 until devices.length()) { val d=devices.getJSONObject(i);if(d.getString("role")=="parent" && d.optInt("revoked")==0)Action("撤销 ${d.getString("name")}") { run { withContext(Dispatchers.IO) { api.json("/v1/devices/${d.getString("id")}","DELETE") };message="已撤销家长凭据" } } }
+                    Text("让家长手机扫描这里生成的二维码，在这台机器人上确认后完成绑定。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    FullAction(if(creatingPairing)"正在生成二维码…" else "生成家长配对材料",enabled=!creatingPairing&&robot.online){generatePairing()}
+                    if(pairing.isNotEmpty()){FullAction("显示配对二维码",secondary=true){showPairing=true};TextButton(onClick={export.launch("family-pairing.json")}){Text("保存配对文件（备用）")}}
+                    if(!robot.online)Text("家庭服务连接恢复后才能生成配对二维码。",color=MaterialTheme.colorScheme.error)
+                    SectionHeading("待确认请求")
+                    if(requests.length()==0)Text("暂无待确认请求",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    for(i in 0 until requests.length()){val p=requests.getJSONObject(i);DesignGroup{Column(Modifier.padding(16.dp)){Text(p.getString("name"));Row{for(approved in listOf(true,false))TextButton(onClick={run{withContext(Dispatchers.IO){api.json("/v1/pairing/${p.getString("id")}/decision","POST",JSONObject().put("approved",approved));requests=api.array("/v1/pairing/pending");devices=api.array("/v1/devices")};message="配对已处理"}}){Text(if(approved)"亲自确认" else "拒绝")}}}}}
+                    SectionHeading("已绑定家长")
+                    val parents=(0 until devices.length()).map{devices.getJSONObject(it)}.filter{it.optString("role")=="parent"&&it.optInt("revoked")==0}
+                    if(parents.isEmpty())Text("还没有绑定家长手机",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    else DesignGroup{parents.forEachIndexed{index,d->DesignRow(d.optString("name"),"查看并解除绑定","bot",index<parents.lastIndex){revokeDevice=d}}}
+                    FullAction("刷新待确认配对与设备",secondary=true){run{withContext(Dispatchers.IO){requests=api.array("/v1/pairing/pending");devices=api.array("/v1/devices")}}}
                 }
                 "修改 PIN" -> {
-            OutlinedTextField(pin,{ pin=it },label={ Text("新的管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-            Action("修改 PIN") { run { vault.setPin(pin);pin="";message="PIN 已更新" } }
+                    Text("修改后，下次进入机器人管理时使用新 PIN。",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    for((label,value,setter) in listOf(Triple("当前 PIN",oldPin,{v:String->oldPin=v}),Triple("新 PIN",pin,{v:String->pin=v}),Triple("确认新 PIN",repeatPin,{v:String->repeatPin=v})))OutlinedTextField(value,{setter(it.filter(Char::isDigit).take(12))},label={Text(label)},visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                    FullAction("保存新 PIN"){when{!pin.matches(Regex("[0-9]{6,12}"))->message="新 PIN 需要 6–12 位数字";pin!=repeatPin->message="两次输入的新 PIN 不一致";pin==oldPin->message="新 PIN 不能与当前 PIN 相同";!vault.verifyPin(oldPin)->message="当前 PIN 不正确或仍在锁定时间内";else->{vault.setPin(pin);pin="";oldPin="";repeatPin="";message="PIN 已更新"}}}
                 }
+                "切换身份" -> {
+                    Text("同一台手机一次只运行一种身份。已有绑定信息会保留。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    DesignGroup{for((value,label) in listOf("robot" to "机器人身份","parent" to "家长身份"))Row(Modifier.fillMaxWidth().clickable{selectedRole=value}.padding(15.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(selectedRole==value,{selectedRole=value});Column{Text(label);Text(if(value=="robot")"显示表情、倾听与陪伴" else "管理资源与使用安排",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
+                    FullAction("切换到所选身份"){if(selectedRole=="robot")close() else if(vault.get("parent")!=null)switch("parent") else switch("setup")}
+                }
+                "离线详情" -> {selectedOffline?.let{(rid,title)->
+                    InfoRow("内容名称",title);InfoRow("离线状态","完整可用")
+                    FullAction("返回小伙伴并播放"){close();robot.playResource(rid)}
+                    Text("播放仍遵守已设置的使用时段与时长限制。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }}
                 "离线内容" -> {
+                    Text("已完整下载的内容，无需连接家庭服务器也能播放。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(robot.offlineItems().isEmpty())Text("暂无完整下载内容，请在家长资源库安排下载")
-                    for((rid,title) in robot.offlineItems())SectionLink(title,"已完整下载"){close();robot.playResource(rid)}
+                    for((rid,title) in robot.offlineItems())SectionLink(title,"已完整下载"){selectedOffline=rid to title;go("离线详情")}
                 }
             }
         }
@@ -278,7 +312,7 @@ class MainActivity:ComponentActivity() {
             result.optJSONObject("models")?.let { models=it }
             result.optJSONObject("configuration")?.let { config=it.getJSONObject("config");version=it.getInt("version");savedConfig=config.toString() }
             }
-        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","唤醒与互动","AI 提示词")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
+        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","连接","唤醒与互动","AI 提示词")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
         pendingTab?.let{target->AlertDialog(onDismissRequest={pendingTab=null},title={Text("有未保存修改")},text={Text("离开会放弃当前修改。可以继续编辑并保存后再离开。")},confirmButton={TextButton(onClick={pendingTab=null;performSelect(target)}){Text("放弃并离开")}},dismissButton={TextButton(onClick={pendingTab=null}){Text("继续编辑")}})}
         if(reloadParent)AlertDialog(onDismissRequest={reloadParent=false},title={Text("重新读取设置？")},text={Text("当前未保存的修改将被已生效配置替换。")},confirmButton={TextButton(onClick={reloadParent=false;run{refresh()}}){Text("重新读取")}},dismissButton={TextButton(onClick={reloadParent=false}){Text("保留修改")}})
         if(revokeParent)AlertDialog(onDismissRequest={revokeParent=false},title={Text("解除本手机绑定？")},text={Text("解除后需要在机器人上重新生成配对二维码才能恢复管理。")},confirmButton={TextButton(onClick={revokeParent=false;run{withContext(Dispatchers.IO){api.json("/v1/devices/${connection.getString("deviceId")}","DELETE")};vault.remove("parent");disconnect()}}){Text("解除绑定")}},dismissButton={TextButton(onClick={revokeParent=false}){Text("取消")}})
@@ -287,6 +321,7 @@ class MainActivity:ComponentActivity() {
         BackHandler(enabled=tab!="首页"){back()}
         if(tab=="主题颜色"){AppearancePage(themeMode,::chooseTheme){back()};return}
         if(tab in listOf("唤醒与互动","AI 提示词")){DeviceSettingsScreen(connection,false,tab,{back()},{playPreview(it)});return}
+        if(tab=="连接"){ParentConnectionScreen(connection,{back()},disconnect);return}
         if(tab=="调试"){DebugChat(connection,back={back()},play={playPreview(it)});return}
         if(tab=="记录"){RecordsScreen(connection,back={selectTab("首页")},play={playPreview(it)},bottom={ParentNavigation(tab){selectTab(it)}});return}
         var recovery by remember { mutableStateOf("") }
@@ -312,7 +347,6 @@ class MainActivity:ComponentActivity() {
                     SectionLink("调试","文字、语音与回复回放"){selectTab("调试")}
                     SectionLink("绑定与恢复","管理本机身份"){selectTab("绑定")}
                 }
-                "连接" -> {DiagnosticsPanel(connection);Text(connection.optString("address"));Action("切换身份 / 连接设置",action=disconnect)}
                 "资源库" -> {
                     var title by remember { mutableStateOf("") };var kind by remember { mutableStateOf("book") };var search by remember { mutableStateOf("") };var filter by remember{mutableStateOf("all")};var favorites by remember{mutableStateOf(false)}
                     Input("搜索书名 / 标签",search) { search=it }
@@ -612,12 +646,18 @@ class MainActivity:ComponentActivity() {
     }
 }
 
-@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,content:@Composable ColumnScope.()->Unit) {
+@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,header:(@Composable ()->Unit)?=null,scroll:ScrollState?=null,content:@Composable ColumnScope.()->Unit) {
+    val pageScroll=scroll ?: remember(title){ScrollState(0)}
     Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.safeDrawingPadding().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){if(onBack!=null)TextButton(onClick=onBack){Text("←",fontSize=24.sp)};Text(title,fontSize=22.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(8.dp))}
+        Row(Modifier.fillMaxWidth().padding(start=16.dp,end=20.dp,top=9.dp,bottom=18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            if(onBack!=null)IconButton(onClick=onBack,modifier=Modifier.size(44.dp)){UiIcon("back",color=MaterialTheme.colorScheme.onSurface)}
+            Text(title,fontSize=21.sp,fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))
+            Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.primaryContainer){Box(Modifier.size(34.dp),contentAlignment=Alignment.Center){UiIcon("bot",Modifier.size(16.dp))}}
+        }
+        header?.let{Box(Modifier.padding(start=20.dp,end=20.dp,bottom=18.dp)){it()}}
         if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            if(message.isNotEmpty())Card { Text(message,Modifier.padding(12.dp)) }
+        Column(Modifier.weight(1f).verticalScroll(pageScroll).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            if(message.isNotEmpty())Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){Text(message,Modifier.padding(14.dp),fontSize=13.sp)}
             content();Spacer(Modifier.height(24.dp))
         }
         bottom?.invoke()

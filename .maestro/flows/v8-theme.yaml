@@ -8,7 +8,7 @@ appId: org.familyrobot.app
 - assertVisible: "明亮背景 · 深绿强调色"
 - takeScreenshot: "v8-light"
 - tapOn: "深色"
-- assertVisible: "深色背景 · 薄荷绿强调色"
+- assertVisible: "当前深色风格 · 薄荷绿强调色"
 - takeScreenshot: "v8-dark"
 - back
 - assertVisible: "小伙伴的个性"

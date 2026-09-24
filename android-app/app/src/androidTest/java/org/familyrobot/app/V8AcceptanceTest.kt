@@ -31,7 +31,7 @@ class V8AcceptanceTest {
         repeat(22){device.findObjects(By.text(text)).firstOrNull{it.className!="android.widget.EditText"}?.let{return it};device.findObject(By.scrollable(true))?.scroll(Direction.DOWN,.6f);Thread.sleep(200)}
         capture("missing-control");error("未找到：$text")
     }
-    private fun tap(text:String){find(text).click();Thread.sleep(350)}
+    private fun tap(text:String){(device.findObject(By.desc(text)) ?: find(text)).click();Thread.sleep(350)}
     private fun role(mode:String):ActivityScenario<MainActivity>{vault.save("identity",JSONObject().put("mode",mode));return ActivityScenario.launch(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))}
     private fun runtime(activity:MainActivity)=MainActivity::class.java.getDeclaredField("runtime").apply{isAccessible=true}.get(activity) as RobotRuntime
     private fun manage(){
@@ -64,7 +64,7 @@ class V8AcceptanceTest {
             waitFor("真实机器人在线"){robot.online};manage()
             tap("小伙伴设置");tap("主题颜色");tap("浅色")
             assertEquals("light",context.getSharedPreferences("appearance",0).getString("theme",""));capture("robot-theme-light")
-            device.pressBack();tap("小伙伴设置");tap("唤醒与互动")
+            device.pressBack();tap("唤醒与互动")
             waitFor("唤醒设置已加载"){device.hasObject(By.text("新的唤醒词（2—6个汉字）"))}
             tap("小蜜桃");tap("保存并应用")
             waitFor("唤醒词真正安装",30){robot.appliedWakeName=="小蜜桃" && device.hasObject(By.textContains("配置已确认"))};assertFalse(robot.micActive);capture("robot-wake-applied")
@@ -97,7 +97,7 @@ class V8AcceptanceTest {
             waitFor("真实模型回答",100){device.hasObject(By.text("播放 / 再次播放"))};capture("debug-real-reply")
             fun playing():Boolean{var result=false;scenario.onActivity{val media=MainActivity::class.java.getDeclaredField("preview").apply{isAccessible=true}.get(it) as? android.media.MediaPlayer;result=runCatching{media?.isPlaying==true}.getOrDefault(false)};return result}
             waitFor("真实TTS自动播放",100){playing()};tap("播放 / 再次播放");waitFor("再次播放",20){playing()}
-            tap("调试记录");find("朗读回答");capture("debug-history");device.pressBack();tap("录制语音")
+            tap("会话记录");find("朗读回答");capture("debug-history");device.pressBack();tap("切换语音输入");tap("点击录音")
             waitFor("真实调试录音"){device.hasObject(By.text("结束录音"))};Thread.sleep(1000);device.pressHome();Thread.sleep(1200)
             val ops=device.executeShellCommand("cmd appops get ${context.packageName} RECORD_AUDIO")
             assertFalse("后台释放麦克风",ops.contains("(running)")||ops.contains("running=true"));event("debug-model-tts-replay-microphone-background")
@@ -156,11 +156,11 @@ class V8AcceptanceTest {
     @Test fun h_serverLossIsVisibleAndRecovers(){
         val flag=File(context.filesDir,"v8-network-state")
         try{role("parent").use{
-            waitFor("服务先在线"){device.hasObject(By.text("● 家庭服务器已连接"))}
+            waitFor("服务先在线"){device.hasObject(By.text("已连接家庭服务器"))}
             flag.writeText("disconnect")
-            waitFor("断开服务后显示红色状态",20){device.hasObject(By.text("● 家庭服务器未连接"))};capture("server-offline")
+            waitFor("断开服务后显示红色状态",20){device.hasObject(By.text("连接失败"))};capture("server-offline")
             flag.writeText("reconnect")
-            waitFor("连接恢复",20){device.hasObject(By.text("● 家庭服务器已连接"))};capture("server-recovered");event("server-unresponsive-status-and-recovery")
+            waitFor("连接恢复",20){device.hasObject(By.text("已连接家庭服务器"))};capture("server-recovered");event("server-unresponsive-status-and-recovery")
         }}finally{flag.writeText("done")}
     }
 

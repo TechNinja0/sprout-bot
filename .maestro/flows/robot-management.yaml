@@ -1,0 +1,18 @@
+# 前提：机器人身份已通过 PIN 进入管理首页；不修改身份或家庭配置。
+appId: org.familyrobot.app
+---
+- assertVisible: "机器人管理"
+- tapOn: "查看连接"
+- assertVisible: "家庭服务器"
+- assertVisible: "身份验证"
+- tapOn: "技术详情"
+- assertVisible: "连接结果"
+- back
+- tapOn: "检查与调试"
+- assertVisible: "设备检查"
+- assertVisible: "我已了解临时采集范围"
+- tapOn: "调试"
+- assertVisible: "当前调试会话"
+- assertVisible: "自动播放新回复"
+- back
+- assertVisible: "机器人管理"

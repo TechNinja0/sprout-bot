@@ -78,7 +78,7 @@ class DeviceSmokeTest {
         context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         assertTrue(device.wait(Until.hasObject(By.text("机器人管理")),5000));Thread.sleep(500)
         assertFalse("管理页恢复前台不能重新录音",recording())
-        device.findObject(By.text("检查与调试")).click();Thread.sleep(400);device.findObject(By.text("测试唤醒")).click();Thread.sleep(2500)
+        device.findObject(By.text("检查与调试")).click();Thread.sleep(400);device.findObject(By.text("测试昵称与唤醒回应")).click();Thread.sleep(2500)
         var active=JSONObject()
         for(attempt in 0..8) {
             val devices=robotApi.array("/v1/devices")

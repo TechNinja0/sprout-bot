@@ -59,6 +59,7 @@ class DiagnosticHardwareTest {
                 device.findObject(By.clazz("android.widget.EditText")).text="258369";device.findObject(By.text("进入")).click()
                 assertTrue(device.wait(Until.hasObject(By.text("机器人管理")),5000));device.findObject(By.text("检查与调试")).click();Thread.sleep(400)
                 for(i in 0..6) { if(device.hasObject(By.text("开始本机自检")))break;device.findObject(By.scrollable(true))?.scroll(Direction.DOWN,0.7f) }
+                device.findObject(By.text("我已了解临时采集范围"))?.parent?.findObject(By.clazz("android.widget.CheckBox"))?.click()
                 assertNotNull(device.findObject(By.text("开始本机自检")));device.findObject(By.text("开始本机自检")).click()
                 waitFor("自检启动") { robot.selfCheckRunning }
                 waitFor("有界自检结束",35000) { !robot.selfCheckRunning && robot.selfCheckReport!=null }
