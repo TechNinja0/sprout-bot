@@ -72,6 +72,46 @@ async def worker(request, task, timeout=90, background=False):
         sem.release()
 
 
+def quiet_sentences(sentences, question):
+    """安静模式仍回答明确的语言教学请求；问句形式不等于主动追问。"""
+    teaching = bool(
+        re.search(r"英语|英文|\benglish\b", question, re.I)
+        and re.search(
+            r"怎么说|如何说|教我|翻译|招呼|问好|说一句|\b(?:teach|translate|say|greet)\b",
+            question,
+            re.I,
+        )
+    )
+    result = []
+    translated_question = False
+    for index, sentence in enumerate(sentences):
+        is_question = sentence.rstrip().endswith(("？", "?"))
+        invitation = bool(
+            re.search(
+                r"想.{0,8}(?:继续|再|学|听|玩)|要不要|还要|\b(?:want|would you like).{0,24}\b(?:more|another|continue|again)\b|\b(?:shall we|let.s)\b",
+                sentence,
+                re.I,
+            )
+        )
+        english_example = (
+            teaching
+            and index == 0
+            and is_question
+            and bool(re.search(r"[a-zA-Z]", sentence))
+            and not invitation
+        )
+        # 最多保留开头的英文例句及紧邻中文释义，不放行后续邀请。
+        translation = (
+            translated_question
+            and index == 1
+            and bool(re.search(r"[\u4e00-\u9fff]", sentence))
+        )
+        if not is_question or (not invitation and (english_example or translation)):
+            result.append(sentence)
+        translated_question = english_example
+    return result
+
+
 async def speech(request, text, voice, story=False, background=False):
     if not text.strip():
         fail(422, "没有可朗读文字")
@@ -712,10 +752,16 @@ async def execute_turn(body: Turn, request: Request, user):
         text = "这件事可以和爸爸妈妈一起说，我会尊重你和家人的约定。"
     text = re.sub(r"[*#`]+", "", text)
     text = re.sub(r"[\r\n]+", "。", text)
-    sentences = re.findall(r"[^。！？.!?]+[。！？.!?]?", text)
+    sentences = [
+        sentence
+        for sentence in re.findall(r"[^。！？.!?]+[。！？.!?]?", text)
+        if re.search(r"[^\W_]", sentence, re.UNICODE)
+    ]
     if not body.image and not config["proactive"] and len(sentences) > 1:
-        sentences = [s for s in sentences if not s.rstrip().endswith(("？", "?"))]
+        sentences = quiet_sentences(sentences, body.text)
     text = "".join(sentences[: (3 if original else 2)]).strip()
+    if not re.search(r"[^\W_]", text, re.UNICODE):
+        fail(503, "没有生成可朗读回答")
     if len(text) > 120:
         text = text[:119].rstrip("，,、 ") + "。"
     if original:

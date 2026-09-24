@@ -14,6 +14,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def terminal_status(rows, required_seconds):
+    """工作负载完成不代表清理完成；旧记录没有恢复ACK也不升级为完成。"""
+    if any(row["event"] in ("failed", "configuration-restore-failed") for row in rows):
+        return "device-failed"
+    complete = next((i for i, row in enumerate(rows) if row["event"] == "complete"), None)
+    if complete is None:
+        return None
+    final = rows[complete]
+    if not final.get("passed") or final.get("elapsedMs", 0) < required_seconds * 1000:
+        return "device-failed"
+    if any(row["event"] == "configuration-restored" and row.get("acknowledged") is True
+           for row in rows[complete + 1:]):
+        return "completed-awaiting-analysis"
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
@@ -26,9 +42,11 @@ def main():
         json.loads(line) for line in (run / "samples.jsonl").read_text().splitlines()
     ]
     start = next(row for row in original if row["event"] == "start")
-    assert (
-        start["mode"] == "standby" and start["seconds"] == 86400 and start["qualifies"]
-    )
+    mode = start["mode"]
+    required_seconds = {"mixed": 14400, "standby": 86400}.get(mode)
+    assert required_seconds is not None
+    assert start["seconds"] == required_seconds and start["qualifies"]
+    sample_path = f"files/stability-{mode}.jsonl"
     expected = json.loads((run / "source-sha256.json").read_text())
     lock = (ROOT / ".artifacts/development/endurance-suite.lock").open("a")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -126,7 +144,7 @@ def main():
                     "run-as",
                     "org.familyrobot.app",
                     "cat",
-                    "files/stability-standby.jsonl",
+                    sample_path,
                 )
                 if result.returncode != 0:
                     raise RuntimeError("无法读取手机采样")
@@ -143,18 +161,9 @@ def main():
                     last_progress = time.monotonic()
                     last_elapsed = elapsed
                 state.update(elapsedMs=elapsed, latestEvent=rows[-1])
-                terminal = [
-                    row for row in rows if row["event"] in ("complete", "failed")
-                ]
+                terminal = terminal_status(rows, required_seconds)
                 if terminal:
-                    state.update(
-                        status="completed-awaiting-analysis"
-                        if terminal[-1]["event"] == "complete"
-                        and terminal[-1].get("passed")
-                        and elapsed >= 86400000
-                        else "device-failed",
-                        terminalEvent=terminal[-1],
-                    )
+                    state.update(status=terminal, terminalEvent=rows[-1])
                     log = adb(
                         "logcat", "-d", "-v", "threadtime", "--pid", str(args.phone_pid)
                     )
@@ -174,7 +183,7 @@ def main():
                         "run-as",
                         "org.familyrobot.app",
                         "cat",
-                        "files/stability-standby.jsonl",
+                        sample_path,
                     )
                     if fresh.returncode != 0:
                         raise RuntimeError("复核采样连接失败，不能判定手机测试终止")

@@ -31,6 +31,9 @@ class StabilityTest {
         vault.save("identity",JSONObject().put("mode","robot"))
         var runtime:RobotRuntime?=null
         val keywordEvents=CopyOnWriteArrayList<JSONObject>()
+        val configuration=StabilityConfiguration(context)
+        var configurationSaved=false
+        var primaryFailure:Throwable?=null
         fun waitFor(label:String,limit:Long=15000,predicate:()->Boolean) {
             val at=SystemClock.elapsedRealtime();while(!predicate() && SystemClock.elapsedRealtime()-at<limit)Thread.sleep(100)
             assertTrue(label,predicate())
@@ -65,6 +68,7 @@ class StabilityTest {
             try {
                 waitFor("联网") { runtime!!.online }
                 record(JSONObject().put("event","models").put("capabilities",api.json("/v1/models")))
+                configuration.saveOriginal();configurationSaved=true
                 val current=api.json("/v1/robots/$robotId/config");val config=current.getJSONObject("config")
                 config.getJSONObject("policy").put("intervals",JSONArray()).put("dailyMinutes",0).put("manualBlocked",false)
                 config.getJSONObject("voice").put("volume",0.12)
@@ -132,10 +136,22 @@ class StabilityTest {
                 onRobot { it.stop() };api.json("/v1/resources/$rid/unlist","POST",JSONObject())
                 record(JSONObject().put("event","complete").put("elapsedMs",SystemClock.elapsedRealtime()-begun).put("activeMs",activeMs).put("cycles",cycle).put("keywordWakeCount",snapshot().getLong("keywordWakeCount")-initialKeywordWakes).put("passed",true))
             } catch(error:Throwable) {
+                primaryFailure=error
                 record(runCatching { snapshot() }.getOrElse { JSONObject().put("snapshotUnavailable",it.javaClass.simpleName) }.put("event","failure-state"))
                 record(JSONObject().put("event","failed").put("elapsedMs",SystemClock.elapsedRealtime()-begun).put("error",error.javaClass.simpleName+": "+error.message))
                 throw error
-            } finally { onRobot { it.stop() } }
+            } finally {
+                try {
+                    onRobot { it.stop() }
+                    if(configurationSaved) {
+                        check(configuration.restore())
+                        record(JSONObject().put("event","configuration-restored").put("acknowledged",true))
+                    }
+                } catch(cleanup:Throwable) {
+                    record(JSONObject().put("event","configuration-restore-failed").put("error",cleanup.javaClass.simpleName))
+                    if(primaryFailure!=null) primaryFailure!!.addSuppressed(cleanup) else throw cleanup
+                } finally { onRobot { it.background() } }
+            }
         }
     }
 }
