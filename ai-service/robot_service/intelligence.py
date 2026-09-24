@@ -24,6 +24,13 @@ from .auth import fail, parent, principal, robot
 from .extract import ocr
 from .library import lookup
 from .local_models import TEXT_MODEL, VISION_MODEL
+from .reply_policy import (
+    MAX_REPLY_CHARS,
+    STORY_PREFIX,
+    bound_reply,
+    generation_options,
+    turn_guidance,
+)
 from .schemas import Lookup, Strict, Voice
 from .store import digest, dumps
 from .tts import capabilities as tts_capabilities
@@ -183,7 +190,7 @@ async def health(request: Request, user=Depends(principal)):
 
 
 class Speak(Strict):
-    text: str = Field(min_length=1, max_length=600)
+    text: str = Field(min_length=1, max_length=MAX_REPLY_CHARS)
     voice: Voice = Field(default_factory=Voice)
     story: bool = False
 
@@ -590,13 +597,15 @@ async def execute_turn(body: Turn, request: Request, user):
     if profile["expression"] == "simple":
         system += " 保持幼儿能理解的短词短句，不随年龄增加难度。"
     if not config["proactive"] and not body.image:
-        system += " 回答到此为止，不主动追问、不邀请继续、不结尾提新问题。"
+        system += " 安静模式只限制主动发问，不限制回答的信息量。完整回答当前请求，不主动追问、不邀请继续、不结尾提新问题。"
     elif not config["proactive"]:
         system += " 只允许为了看清对象而询问必要的澄清问题，不邀请继续其他话题。"
     if not config["originalStories"]:
         system += " 不自编故事，故事请使用书架。"
     if original:
-        system += " 只编一个温和、无危险模仿的原创小故事，结尾收住，不加入恐吓、成人内容和操作建议。"
+        system += " 讲完一个有起因、经过和结局的温和原创故事，结尾收住，不加入恐吓、成人内容和危险操作建议。"
+    if not body.image:
+        system += "\n" + turn_guidance(body.text, story=original)
     if body.image:
         system = (
             expand(templates["visual"], config, age) + "\n" + vision_instructions(age)
@@ -685,15 +694,9 @@ async def execute_turn(body: Turn, request: Request, user):
                         "stream": False,
                         "think": False,
                         "keep_alive": "30m",
-                        "options": {
-                            "num_ctx": 4096,
-                            "num_predict": 256
-                            if body.image
-                            else 160
-                            if original
-                            else 96,
-                            "temperature": 0.4 if original else 0,
-                        },
+                        "options": generation_options(
+                            story=original, visual=bool(body.image)
+                        ),
                         "messages": [
                             {"role": "system", "content": system},
                             *([] if body.image else history),
@@ -714,7 +717,7 @@ async def execute_turn(body: Turn, request: Request, user):
                 visual_state = render_vision(raw, body.text)
                 text = visual_state["text"]
             else:
-                text = raw[:500]
+                text = raw
     except (httpx.HTTPError, KeyError, ValueError, TimeoutError):
         fail(503, "本地对话模型暂不可用")
     finally:
@@ -733,18 +736,20 @@ async def execute_turn(body: Turn, request: Request, user):
     text = re.sub(r"[\r\n]+", "。", text)
     sentences = [
         sentence
-        for sentence in re.findall(r"[^。！？.!?]+[。！？.!?]?", text)
+        for sentence in re.findall(r"[^。！？.!?]+[。！？.!?]?[”’\"]?", text)
         if re.search(r"[^\W_]", sentence, re.UNICODE)
     ]
     if not body.image and not config["proactive"] and len(sentences) > 1:
         sentences = quiet_sentences(sentences, body.text)
-    text = "".join(sentences[: (3 if original else 2)]).strip()
+    text = "".join(sentences[:2] if body.image else sentences).strip()
     if not re.search(r"[^\W_]", text, re.UNICODE):
         fail(503, "没有生成可朗读回答")
-    if len(text) > 120:
-        text = text[:119].rstrip("，,、 ") + "。"
+    text = bound_reply(
+        text,
+        120 if body.image else MAX_REPLY_CHARS - (len(STORY_PREFIX) if original else 0),
+    )
     if original:
-        text = "这是我编的小故事。" + text
+        text = STORY_PREFIX + text
     # 不存图片和未审核儿童信息到持久库；上下文10分钟自动淘汰。
     sessions[key] = {
         "at": now,
