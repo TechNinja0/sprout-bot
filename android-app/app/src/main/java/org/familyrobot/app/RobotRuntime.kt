@@ -262,7 +262,17 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
                         "play" -> playResource(resource)
                         "playlist" -> playPlaylist(body.getString("playlistId"))
                         "download" -> download(resource)
-                        "remove_download" -> { downloadJobs.remove(resource)?.cancel();withContext(Dispatchers.IO) { File(cache,resource).deleteRecursively() } }
+                        "remove_download" -> {
+                            check(resource.matches(Regex("[a-f0-9]{32}")))
+                            downloadJobs.remove(resource)?.cancelAndJoin()
+                            withContext(Dispatchers.IO) {
+                                val dir=File(cache,resource)
+                                val revision=runCatching{JSONObject(File(dir,"manifest.json").readText()).optString("revisionId")}.getOrDefault("")
+                                cacheWriteLock.withLock{check(dir.deleteRecursively()){"清理离线副本失败"};File(cache,"$resource.partial").deleteRecursively()}
+                                api.json("/v1/resources/$resource/download","PUT",JSONObject().put("revisionId",revision).put("state","removed"))
+                            }
+                            pendingKeywords=localKeywords(vault.get(robotKey(connection,"kws"))?.optString("keywords") ?: "")
+                        }
                     }
                     withContext(Dispatchers.IO) { api.json("/v1/commands/${command.getString("id")}/ack","POST",JSONObject().put("applied",accepted).put("version",version)) }
                     continue

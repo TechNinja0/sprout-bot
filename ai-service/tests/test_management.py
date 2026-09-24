@@ -256,3 +256,23 @@ def test_compressed_audio_is_seekable_and_validated(tmp_path):
         validate_file(path.read_bytes(), extension)
     with pytest.raises(Exception):
         validate_file(b"not audio", ".mp3")
+
+
+def test_edit_playlist_keeps_identity_and_rejects_unpublished(system):
+    from test_library import make_book, publish
+    c, _, _, rh, _, ph = system
+    book = make_book(c, ph)
+    publish(c, ph, book)
+    created = c.post('/v1/playlists', headers=ph,
+                     json={'name': '睡前', 'resources': [book['id']]}).json()['id']
+    path = '/v1/playlists/' + created
+    body = {'name': '晚安故事', 'resources': [book['id']]}
+    assert c.put(path, headers=rh, json=body).status_code == 403
+    assert c.put(path, headers=ph, json=body).json() == {'id': created}
+    row = next(x for x in c.get('/v1/playlists', headers=ph).json() if x['id'] == created)
+    assert row['name'] == '晚安故事'
+    draft = make_book(c, ph, title='尚未审核')
+    assert c.put(path, headers=ph, json={'name': '不能覆盖', 'resources': [draft['id']]}).status_code == 422
+    assert c.get('/v1/playlists', headers=ph).json()[0]['name'] == '晚安故事'
+    c.delete(path, headers=ph)
+    assert c.put(path, headers=ph, json=body).status_code == 404

@@ -22,7 +22,7 @@ import org.json.JSONObject
 
 private val DarkRobotColors=darkColorScheme(primary=Color(0xFF9DE3CB),onPrimary=Color(0xFF102923),primaryContainer=Color(0xFF213E38),onPrimaryContainer=Color(0xFFD1F6E8),background=Color(0xFF101F23),onBackground=Color(0xFFE9F2EE),surface=Color(0xFF1A2C30),onSurface=Color(0xFFE9F2EE),surfaceVariant=Color(0xFF21363A),onSurfaceVariant=Color(0xFFAAC0B9),outlineVariant=Color(0xFF304449),outline=Color(0xFF506762),error=Color(0xFFFFB2A8),secondary=Color(0xFFB0CCC1),onSecondary=Color(0xFF18342C),secondaryContainer=Color(0xFF29473E),onSecondaryContainer=Color(0xFFD1F6E8),surfaceContainerLowest=Color(0xFF0A191D),surfaceContainerLow=Color(0xFF14262A),surfaceContainer=Color(0xFF1A2C30),surfaceContainerHigh=Color(0xFF21363A),surfaceContainerHighest=Color(0xFF294044))
 private val LightRobotColors=lightColorScheme(primary=Color(0xFF196956),onPrimary=Color.White,primaryContainer=Color(0xFFE9F3ED),onPrimaryContainer=Color(0xFF174C3D),background=Color(0xFFF5F7F5),onBackground=Color(0xFF182E2D),surface=Color.White,onSurface=Color(0xFF182E2D),surfaceVariant=Color(0xFFE9F0EB),onSurfaceVariant=Color(0xFF586C67),outlineVariant=Color(0xFFE1E9E4),outline=Color(0xFF788B84),error=Color(0xFFAB352E),secondary=Color(0xFF49665B),onSecondary=Color.White,secondaryContainer=Color(0xFFD5EADF),onSecondaryContainer=Color(0xFF174C3D),surfaceContainerLowest=Color.White,surfaceContainerLow=Color(0xFFF1F6F2),surfaceContainer=Color(0xFFEAF1EC),surfaceContainerHigh=Color(0xFFE3ECE6),surfaceContainerHighest=Color(0xFFDBE7DF))
-@Composable fun RobotTheme(mode:String,content:@Composable ()->Unit) { MaterialTheme(colorScheme=if(mode=="light")LightRobotColors else DarkRobotColors,typography=Typography(bodyLarge=TextStyle(fontSize=14.sp,lineHeight=22.sp),bodyMedium=TextStyle(fontSize=13.sp,lineHeight=21.sp),bodySmall=TextStyle(fontSize=12.sp,lineHeight=19.sp),titleLarge=TextStyle(fontSize=21.sp,lineHeight=28.sp,fontWeight=FontWeight.Medium),titleMedium=TextStyle(fontSize=15.sp,lineHeight=23.sp,fontWeight=FontWeight.Medium),labelLarge=TextStyle(fontSize=14.sp,fontWeight=FontWeight.Medium)),shapes=Shapes(small=RoundedCornerShape(13.dp),medium=RoundedCornerShape(16.dp),large=RoundedCornerShape(20.dp)),content=content) }
+@Composable fun RobotTheme(mode:String,content:@Composable ()->Unit) { MaterialTheme(colorScheme=if(mode=="light")LightRobotColors else DarkRobotColors,typography=Typography(bodyLarge=TextStyle(fontSize=14.sp,lineHeight=22.sp),bodyMedium=TextStyle(fontSize=13.sp,lineHeight=21.sp),bodySmall=TextStyle(fontSize=12.sp,lineHeight=19.sp),titleLarge=TextStyle(fontSize=21.sp,lineHeight=28.sp,fontWeight=FontWeight.Medium),titleMedium=TextStyle(fontSize=15.sp,lineHeight=23.sp,fontWeight=FontWeight.Medium),labelLarge=TextStyle(fontSize=14.sp,fontWeight=FontWeight.Medium)),shapes=Shapes(extraSmall=RoundedCornerShape(13.dp),small=RoundedCornerShape(13.dp),medium=RoundedCornerShape(16.dp),large=RoundedCornerShape(20.dp)),content=content) }
 @Composable fun AppearancePage(mode:String,choose:(String)->Unit,back:()->Unit) {
     Page("主题颜色","",false,onBack=back) {
         Text("选择这台手机的外观，即时生效并保留。两台手机可以各选各的。",color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -42,6 +42,8 @@ private val LightRobotColors=lightColorScheme(primary=Color(0xFF196956),onPrimar
             "back" -> {line(19f,12f,5f,12f);line(5f,12f,10f,7f);line(5f,12f,10f,17f)}
             "chevron" -> {line(9f,6f,15f,12f);line(15f,12f,9f,18f)}
             "bot" -> {box(5f,7f,14f,13f);line(12f,3f,12f,7f);line(2f,11f,2f,16f);line(22f,11f,22f,16f);line(9f,11f,9f,13f);line(15f,11f,15f,13f);line(9f,17f,15f,17f)}
+            "home" -> {line(3f,11f,12f,3f);line(12f,3f,21f,11f);box(6f,11f,12f,10f);box(10f,15f,4f,6f)}
+            "chat" -> {box(3f,4f,18f,14f);line(7f,18f,7f,22f);line(7f,22f,12f,18f)}
             "check" -> {line(5f,12f,10f,17f);line(10f,17f,20f,6f)}
             "send" -> {line(12f,20f,12f,4f);line(12f,4f,6f,10f);line(12f,4f,18f,10f)}
             "mic" -> {box(9f,3f,6f,12f);line(5f,12f,5f,16f);line(5f,16f,12f,20f);line(12f,20f,19f,16f);line(19f,16f,19f,12f);line(12f,20f,12f,23f)}
@@ -94,10 +96,10 @@ private val LightRobotColors=lightColorScheme(primary=Color(0xFF196956),onPrimar
         Row(Modifier.fillMaxWidth().heightIn(min=42.dp),verticalAlignment=Alignment.CenterVertically){Text(if(checking)"正在验证服务身份" else if(online)"连接正常 · 家庭电脑" else "离线内容仍可播放",fontSize=12.sp,color=foreground,modifier=Modifier.weight(1f));if(click!=null)TextButton(click){Text("查看连接");UiIcon("chevron",Modifier.size(15.dp))}else UiIcon(if(online)"check" else "server",color=foreground)}
     } }
 }
-@Composable fun Dropdown(json:JSONObject,key:String,label:String,options:List<Pair<String,String>>) {
+@Composable fun Dropdown(json:JSONObject,key:String,label:String,options:List<Pair<String,String>>,changed:(String)->Unit={}) {
     var expanded by remember { mutableStateOf(false) };var value by remember(json,key) { mutableStateOf(json.optString(key)) }
     Text(label,fontSize=13.sp)
-    Box { OutlinedButton(onClick={ expanded=true },modifier=Modifier.fillMaxWidth()) { Text(options.firstOrNull { it.first==value }?.second ?: "请选择");Spacer(Modifier.weight(1f));Text("⌄") };DropdownMenu(expanded,{ expanded=false }) { options.forEach { (id,name) -> DropdownMenuItem(text={ Text(name) },onClick={ value=id;json.put(key,if(json.opt(key) is Number)id.toInt() else id);expanded=false }) } } }
+    Box { OutlinedButton(onClick={ expanded=true },modifier=Modifier.fillMaxWidth().heightIn(min=48.dp),shape=RoundedCornerShape(13.dp),colors=ButtonDefaults.outlinedButtonColors(containerColor=MaterialTheme.colorScheme.surface,contentColor=MaterialTheme.colorScheme.onSurface),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) { Text(options.firstOrNull { it.first==value }?.second ?: "请选择");Spacer(Modifier.weight(1f));Text("⌄") };DropdownMenu(expanded,{ expanded=false }) { options.forEach { (id,name) -> DropdownMenuItem(text={ Text(name) },onClick={ value=id;json.put(key,if(json.opt(key) is Number)id.toInt() else id);expanded=false;changed(id) }) } } }
 }
 @Composable fun RobotTutorial() {
     Text("了解怎样和小伙伴相处，需要时展开查看。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -114,8 +116,32 @@ private val LightRobotColors=lightColorScheme(primary=Color(0xFF196956),onPrimar
 fun statusLabel(value:String)=mapOf("SELF_CHECK" to "设备检查中","MANAGEMENT" to "本机正在管理设置","THERMAL" to "设备温度较高，已暂停","blocked" to "暂停使用","recognizing" to "正在识别","opening" to "正在回应唤醒","follow_up" to "等待继续说话","closing" to "准备休息","self_check" to "设备检查中","standby" to "空闲待机","listening" to "正在倾听","thinking" to "正在思考","speaking" to "正在回答","playing" to "正在播放","paused" to "已暂停","loading" to "准备播放","idle" to "空闲待机","ALLOWED" to "可使用","MANUAL" to "家长已停用","SCHEDULED" to "禁用时段","QUOTA" to "今日额度已用完","UNTRUSTED_TIME" to "时间待校验","muted" to "麦克风静音")[value] ?: value
 
 @Composable fun ParentNavigation(current:String,select:(String)->Unit){
-    NavigationBar(containerColor=MaterialTheme.colorScheme.surface){for((name,symbol) in listOf("首页" to "⌂","记录" to "☷","设置" to "⚙"))NavigationBarItem(selected=current==name,onClick={select(name)},icon={Text(symbol,fontSize=20.sp)},label={Text(name)})}
+    Surface(color=MaterialTheme.colorScheme.surface){Column{
+        HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+        Row(Modifier.fillMaxWidth().padding(10.dp),horizontalArrangement=Arrangement.spacedBy(5.dp)){
+            for((name,icon) in listOf("首页" to "home","记录" to "chat","设置" to "settings"))Surface(
+                Modifier.weight(1f).clickable{select(name)},shape=RoundedCornerShape(14.dp),
+                color=if((if(current=="资源库")"首页" else current)==name)MaterialTheme.colorScheme.primaryContainer else Color.Transparent){
+                Column(Modifier.padding(vertical=10.dp),horizontalAlignment=Alignment.CenterHorizontally){UiIcon(icon);Text(name,fontSize=11.sp)}
+            }
+        }
+    }}
 }
+
+@Composable fun EmptyState(title:String,detail:String="") {
+    DesignGroup { Column(Modifier.fillMaxWidth().padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(10.dp)){
+        UiIcon("book",Modifier.size(28.dp));Text(title);if(detail.isNotBlank())Text(detail,fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }}
+}
+@Composable fun EditorSteps(stage:Int,select:(Int)->Unit,enabled:Boolean=true){
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+        listOf("1 录入","2 校对","3 试听与发布").forEachIndexed{index,label->Column(Modifier.weight(1f).clickable(enabled=enabled){select(index)}){
+            Text(label,Modifier.padding(vertical=12.dp),fontSize=12.sp,color=if(stage==index)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(thickness=2.dp,color=if(stage==index)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+        }}
+    }
+}
+fun resourceStatus(value:String)=mapOf("draft" to "草稿","published" to "已发布","unlisted" to "已下架","complete" to "已下载","completed" to "已下载","ready" to "已下载","downloaded" to "已完整下载","removed" to "已清理手机副本","pending_removal" to "等待机器人同步清理","downloading" to "下载中","failed" to "下载失败","queued" to "等待处理","processing" to "正在处理","needs_review" to "待校对","cancelled" to "已取消","interrupted" to "已中断","stale" to "草稿版本已更新")[value] ?: value
 
 @Composable fun PronunciationEditor(page:JSONObject){
     var words by remember(page){mutableStateOf(page.optJSONObject("pronunciation") ?: JSONObject())}
@@ -127,4 +153,12 @@ fun statusLabel(value:String)=mapOf("SELF_CHECK" to "设备检查中","MANAGEMEN
     OutlinedTextField(spoken,{spoken=it.take(160)},label={Text("希望读成的文字")},modifier=Modifier.fillMaxWidth())
     Action(if(words.has(original.trim()))"更新此词读音" else "添加发音纠正",original.isNotBlank()&&spoken.isNotBlank()){words.put(original.trim(),spoken.trim());words=JSONObject(words.toString());page.put("pronunciation",words);page.put("reviewed",false);original="";spoken=""}
     Text("只影响朗读，不替换校对正文。修改后请重新校对与试听。",fontSize=12.sp)
+}
+
+@Composable fun FormField(label:String,value:String,lines:Int=1,change:(String)->Unit){
+    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Text(label,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(value,change,modifier=Modifier.fillMaxWidth().semantics{contentDescription=label},minLines=lines,maxLines=if(lines>1)12 else 2,
+            colors=OutlinedTextFieldDefaults.colors(focusedContainerColor=MaterialTheme.colorScheme.surface,unfocusedContainerColor=MaterialTheme.colorScheme.surface,unfocusedBorderColor=MaterialTheme.colorScheme.outlineVariant),shape=RoundedCornerShape(13.dp))
+    }
 }

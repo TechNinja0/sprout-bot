@@ -19,6 +19,7 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class V8AcceptanceTest {
+    init { Configurator.getInstance().setWaitForIdleTimeout(200).setWaitForSelectorTimeout(2000) }
     private val instrumentation=InstrumentationRegistry.getInstrumentation()
     private val context=instrumentation.targetContext
     private val device=UiDevice.getInstance(instrumentation)
@@ -84,15 +85,15 @@ class V8AcceptanceTest {
             assertTrue(device.wait(Until.hasObject(By.text("家长管理")),10000));capture("parent-light")
             tap("设置");tap("主题颜色");tap("深色");assertEquals("dark",context.getSharedPreferences("appearance",0).getString("theme",""));capture("parent-theme-dark")
             device.pressBack();tap("唤醒与互动");waitFor("双端共享昵称"){device.hasObject(By.textContains("当前配置：小蜜桃"))};device.pressBack()
-            for((entry,label) in listOf("成长" to "基准年龄（3—17）","隐私" to "允许会话内看图","记录保存" to "保存后续陪伴对话","声音" to "中文声音")){tap(entry);find(label);capture("parent-"+entry);device.pressBack()}
-            tap("首页");tap("资源库");find("创建草稿");device.pressBack();tap("使用安排");find("每日使用分钟，0表示不设额度");device.pressBack();tap("记录");find("暂无记录");capture("parent-records-empty")
+            for((entry,label) in listOf("孩子与成长" to "基准年龄（3—17）","隐私与权限" to "允许会话内看图","对话记录保存" to "保存后续陪伴对话","声音" to "中文声音")){tap(entry);find(label);capture("parent-"+entry);device.pressBack()}
+            tap("首页");tap("资源库");find("添加资源");device.pressBack();tap("使用安排");find("每日使用分钟，0表示不设额度");device.pressBack();tap("记录");find("暂无记录");capture("parent-records-empty")
         }
         role("parent").use{assertEquals("dark",context.getSharedPreferences("appearance",0).getString("theme",""));event("parent-navigation-theme-relaunch")}
     }
 
     @Test fun d_debugRealModelAndReplay(){
         role("parent").use{scenario->
-            tap("设置");tap("调试");waitFor("调试输入框"){device.hasObject(By.clazz("android.widget.EditText"))}
+            tap("设置");tap("检查与调试");tap("调试");waitFor("调试输入框"){device.hasObject(By.clazz("android.widget.EditText"))}
             device.findObject(By.clazz("android.widget.EditText")).text="你好，用一句话介绍自己。";tap("发送")
             waitFor("真实模型回答",100){device.hasObject(By.text("播放 / 再次播放"))};capture("debug-real-reply")
             fun playing():Boolean{var result=false;scenario.onActivity{val media=MainActivity::class.java.getDeclaredField("preview").apply{isAccessible=true}.get(it) as? android.media.MediaPlayer;result=runCatching{media?.isPlaying==true}.getOrDefault(false)};return result}
@@ -106,7 +107,7 @@ class V8AcceptanceTest {
 
     @Test fun e_scanCameraOpenClose(){
         role("setup").use{
-            tap("扫描二维码");assertTrue(device.wait(Until.hasObject(By.textContains("将机器人上的二维码")),7000));Thread.sleep(1500);capture("scan-camera")
+            tap("这是机器人手机");tap("扫描二维码");assertTrue(device.wait(Until.hasObject(By.textContains("将机器人上的二维码")),7000));Thread.sleep(1500);capture("scan-camera")
             device.pressBack();assertTrue(device.wait(Until.hasObject(By.text("连接家庭机器人")),5000));event("scanner-camera-open-close-no-crash")
         }
     }
@@ -131,7 +132,14 @@ class V8AcceptanceTest {
                 value.getJSONObject("draft").put("auditioned",true)
                 value=parent.json("/v1/resources/$rid","PUT",JSONObject().put("expectedVersion",value.getInt("draft_version")).put("draft",value.getJSONObject("draft")))
                 parent.json("/v1/resources/$rid/publish","POST",JSONObject().put("requestId",UUID.randomUUID().toString()).put("expectedVersion",value.getInt("draft_version")))
-                tap("资源库");tap("儿歌");tap("V8原创播放验收");tap("在机器人上播放");tap("确认")
+                val downloadCommand=UUID.randomUUID().toString()
+                parent.json("/v1/robots/${rc.getString("deviceId")}/control","POST",JSONObject().put("requestId",downloadCommand).put("action","download").put("resourceId",rid))
+                waitFor("实际离线副本下载完成",40){robot.offlineItems().any{it.first==rid}}
+                val removeCommand=UUID.randomUUID().toString()
+                parent.json("/v1/robots/${rc.getString("deviceId")}/control","POST",JSONObject().put("requestId",removeCommand).put("action","remove_download").put("resourceId",rid))
+                waitFor("清理回执与下载状态一致",25){val rows=parent.array("/v1/downloads");(0 until rows.length()).any{rows.getJSONObject(it).let{d->d.optString("resource_id")==rid&&d.optString("state")=="removed"}}}
+                assertFalse(robot.offlineItems().any{it.first==rid})
+                tap("资源库");tap("全部");tap("儿歌");tap("V8原创播放验收");tap("在机器人上播放");tap("确认")
                 fun progressing():Boolean{var ok=false;scenario.onActivity{val track=RobotRuntime::class.java.getDeclaredField("track").apply{isAccessible=true}.get(robot) as? android.media.AudioTrack;ok=track!=null && track.playState==android.media.AudioTrack.PLAYSTATE_PLAYING && track.playbackHeadPosition>0};return ok}
                 waitFor("实际AudioTrack推进",40){progressing()};device.pressBack();device.pressBack()
                 waitFor("家长首页真实播放状态"){device.hasObject(By.text("暂停"))};capture("parent-playing");tap("暂停")

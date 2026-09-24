@@ -184,7 +184,7 @@ class DeviceSmokeTest {
         context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         assertTrue(device.wait(Until.hasObject(By.text("家长管理")),10000))
         device.findObject(By.text("资源库")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("创建草稿")),5000))
+        assertTrue(device.wait(Until.hasObject(By.text("添加资源")),5000))
         device.takeScreenshot(File(context.filesDir,"smoke-parent.png"))
         verifyParentTabs(device,context)
         File(context.filesDir,"test-connection.json").delete()

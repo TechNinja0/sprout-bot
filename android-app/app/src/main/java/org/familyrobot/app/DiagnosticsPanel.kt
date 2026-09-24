@@ -51,7 +51,8 @@ import org.json.JSONObject
         val states=mapOf("standby" to "待机","opening" to "正在叫醒","listening" to "倾听","recognizing" to "识别语音","thinking" to "思考","speaking" to "说话或播放","follow_up" to "等待续问","closing" to "结束会话","muted" to "静音","blocked" to "暂停使用","self_check" to "本机自检")
         Text("机器人${if(robot.optBoolean("online"))"在线" else "离线"} · 配置已生效 ${robot.optInt("appliedVersion")} / 目标 ${robot.optInt("configVersion")} · ${states[robot.optString("state")] ?: "状态未知"}")
         val capabilities=value.getJSONObject("modelAvailability")
-        Text(listOf("llm" to "对话","vlm" to "视觉理解","asr" to "语音识别","tts" to "语音合成","ocr" to "书页识字").joinToString("；") { (key,name) -> "$name：${if(capabilities.optBoolean(key))"可用" else "未就绪"}" })
+        SectionHeading("服务分项能力")
+        for((key,name) in listOf("llm" to "对话","vlm" to "视觉理解","asr" to "语音识别","tts" to "语音合成","ocr" to "书页识字"))InfoRow(name,if(capabilities.optBoolean(key))"条件就绪" else "未就绪")
         Text("可用存储：${value.optLong("storageFreeBytes")/1024/1024} MB")
         Button(onClick={export.launch("family-robot-diagnostics.json")}) { Text("保存脱敏诊断") }
     }

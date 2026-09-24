@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 系统相机/选图返回原创夹具，验证真实UI/URI上传/服务OCR；不作为实际纸书拍摄质量验收。 */
 @RunWith(AndroidJUnit4::class)
 class BookImportUiTest {
+    init { Configurator.getInstance().setWaitForIdleTimeout(200).setWaitForSelectorTimeout(2000) }
     @Test fun sequentialCameraAndPickerImportThenSinglePageRetry() {
         val instrumentation=InstrumentationRegistry.getInstrumentation();val context=instrumentation.targetContext
         val device=UiDevice.getInstance(instrumentation);val vault=Vault(context);val identity=vault.get("identity")
@@ -81,12 +82,12 @@ class BookImportUiTest {
         }
         fun find(text:String):UiObject2 {
             device.waitForIdle()
-            device.findObject(By.text(text))?.let { return it }
+            (device.findObject(By.text(text)) ?: device.findObject(By.desc(text)))?.let { return it }
             device.wait(Until.hasObject(By.clazz("android.widget.EditText")),5000)
-            for(i in 0..20) { if(device.hasObject(By.text("编辑资源草稿")) || device.hasObject(By.text("家长管理")))break;if(!scroll(true))break }
+            for(i in 0..20) { if(device.hasObject(By.text("录入图书")) || device.hasObject(By.text("家长管理")))break;if(!scroll(true))break }
             for(i in 0..28) {
-                device.findObject(By.text(text))?.let { return it }
-                if(!scroll(false)) { Thread.sleep(300);device.findObject(By.text(text))?.let { return it };break }
+                (device.findObject(By.text(text)) ?: device.findObject(By.desc(text)))?.let { return it }
+                if(!scroll(false)) { Thread.sleep(300);(device.findObject(By.text(text)) ?: device.findObject(By.desc(text)))?.let { return it };break }
             }
             device.dumpWindowHierarchy(File(context.filesDir,"book-import-failure.xml"))
             device.takeScreenshot(File(context.filesDir,"book-import-failure.png"))
@@ -101,7 +102,7 @@ class BookImportUiTest {
             context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
             assertTrue(device.wait(Until.hasObject(By.text("家长管理")),10000))
             find("资源库").click();find("原创图书录入界面测试").click();find("编辑工作草稿").click()
-            assertTrue(device.wait(Until.hasObject(By.text("编辑资源草稿")),10000));find("出版社")
+            assertTrue(device.wait(Until.hasObject(By.text("录入图书")),10000));find("书目信息与来源").click();find("出版社")
             find("连续拍摄书页").click()
             assertTrue(device.wait(Until.hasObject(By.text("已拍摄 1 页")),10000));find("继续拍摄").click()
             assertTrue(device.wait(Until.hasObject(By.text("已拍摄 2 页")),10000));find("导入已拍书页").click()
@@ -117,7 +118,7 @@ class BookImportUiTest {
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertTrue(pages.getJSONObject(3).getString("text").contains("Picker page 1"));assertTrue(pages.getJSONObject(4).getString("text").contains("Picker page 2"))
             assertEquals(1,pickerCount.get());record("picker-fixture-two-pages")
-            find("2 校对").click();find("下一页").click();find("重新识别本页").click()
+            find("2 校对").click();find("录入位置 2 · 无印刷页码").click();find("重新识别本页").click()
             waitFor("单页重识别完成") { device.hasObject(By.textContains("本页识别：needs_review")) }
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertEquals(5,pages.length());assertTrue(pages.getJSONObject(0).getBoolean("reviewed"))

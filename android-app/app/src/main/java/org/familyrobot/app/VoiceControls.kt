@@ -24,17 +24,17 @@ fun VoiceControls(voice:JSONObject,models:JSONObject,resource:Boolean=false) {
     if(info?.optJSONArray("qualities")!=null){Dropdown(voice,"quality","输出音质",listOf("standard" to "标准 · 16 kHz","high" to "高品质 · 原始采样率"));Text("两档使用同一模型；标准档减少传输与存储，高品质保留合成原始采样率。原录音不做换声。")}
     Text("本地语音：${info?.optString("model") ?: "读取声音能力中"}")
     if(info!=null && !info.optBoolean("ready"))Text("电脑上的语音模型尚未就绪，请完成本地模型安装。")
-    if(resource)Choice(voice,"story","本资源朗读声音",options())
+    if(resource)Dropdown(voice,"story","本资源朗读声音",options())
     else {
-        Choice(voice,"zh","中文声音",options("zh"))
-        Choice(voice,"en","英语声音",options("en"))
-        Choice(voice,"story","原创故事声音",options())
+        Dropdown(voice,"zh","中文声音",options("zh"))
+        Dropdown(voice,"en","英语声音",options("en"))
+        Dropdown(voice,"story","原创故事声音",options())
     }
     if(info?.optBoolean("supportsStyle")==true) {
         val styles=info.optJSONArray("styles")
         val choices=if(styles==null)emptyList() else (0 until styles.length()).map { styles.getJSONObject(it).let { row -> row.getString("id") to row.getString("name") } }
-        if(!resource)Choice(voice,"style","回答语气",choices)
-        Choice(voice,"storyStyle",if(resource)"朗读语气" else "故事语气",choices)
+        if(!resource)Dropdown(voice,"style","回答语气",choices)
+        Dropdown(voice,"storyStyle",if(resource)"朗读语气" else "故事语气",choices)
     } else if(info!=null)Text("当前引擎支持音色和语速，不支持语气控制；已有语气设置会保留。")
     if(info?.optBoolean("supportsInstruction")==true) {
         JsonField(voice,"instruction","补充语气描述（最多200字，可留空）",2)

@@ -116,20 +116,24 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
 
 }
 
-@Composable fun RecordsScreen(connection:JSONObject,debug:Boolean=false,back:()->Unit,play:(ByteArray)->Unit,bottom:(@Composable ()->Unit)?=null) {
+@Composable fun RecordsScreen(connection:JSONObject,debug:Boolean=false,back:()->Unit,play:(ByteArray)->Unit,bottom:(@Composable ()->Unit)?=null,openUsage:(()->Unit)?=null) {
     val api=remember(connection){Api(connection)};val scope=rememberCoroutineScope();var rows by remember{mutableStateOf(JSONArray())};var busy by remember{mutableStateOf(false)};var message by remember{mutableStateOf("")};var remove by remember{mutableStateOf<String?>(null)}
     val context=LocalContext.current;val lifecycle=LocalLifecycleOwner.current.lifecycle
-    val kind=if(debug)"debug" else "companion"
+    var kind by remember{mutableStateOf(if(debug)"debug" else "companion")};var selectedSession by remember{mutableStateOf<String?>(null)}
+    fun exit(){(context as? MainActivity)?.stopPreview();if(selectedSession!=null)selectedSession=null else back()}
     fun launch(block:suspend ()->Unit){if(busy)return;scope.launch{busy=true;try{block()}catch(e:CancellationException){throw e}catch(e:Exception){message=e.message ?: "读取失败"}finally{busy=false}}}
     suspend fun refresh(){rows=withContext(Dispatchers.IO){api.array("/v1/records?kind=$kind")}}
-    LaunchedEffect(kind){launch{refresh()}}
+    LaunchedEffect(kind){rows=JSONArray();selectedSession=null;launch{refresh()}}
     DisposableEffect(api,lifecycle){val observer=LifecycleEventObserver{_,event->if(event==Lifecycle.Event.ON_STOP){scope.coroutineContext.cancelChildren();api.cancel();(context as? MainActivity)?.stopPreview()}};lifecycle.addObserver(observer);onDispose{api.cancel();(context as? MainActivity)?.stopPreview();lifecycle.removeObserver(observer)}}
-    BackHandler(onBack=back)
-    Page(if(debug)"调试记录" else "对话记录",message,busy,onBack=back,bottom=bottom){
+    BackHandler{exit()}
+    Page(if(selectedSession!=null)"会话详情" else if(debug)"调试记录" else "对话记录",message,busy,onBack={exit()},bottom=if(selectedSession==null)bottom else null){
+        if(!debug&&selectedSession==null)Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){FilterChip(kind=="companion",{kind="companion"},enabled=!busy,label={Text("陪伴对话")});FilterChip(kind=="debug",{kind="debug"},enabled=!busy,label={Text("调试会话")});if(openUsage!=null)TextButton(onClick=openUsage){Text("使用记录")}}
         Text(if(debug)"仅显示这台管理设备的调试会话" else "默认不保存；启用后记录后续对话。这里显示请求及服务回答，不代表孩子已听完。",fontSize=12.sp)
         Row{Action("刷新",!busy){launch{refresh()}};TextButton(onClick={remove="all"},enabled=!busy&&rows.length()>0){Text("清空")}}
-        if(rows.length()==0)Text("暂无记录")
-        for(i in 0 until rows.length()){val row=rows.getJSONObject(i);Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        if(rows.length()==0)EmptyState("暂无记录","启用记录后只保存后续对话，不补录过去会话。")
+        val sessions=(0 until rows.length()).map{rows.getJSONObject(it)}.groupBy{it.optString("session_id")}
+        if(selectedSession==null && !debug && sessions.isNotEmpty())DesignGroup{sessions.entries.forEachIndexed{index,(id,turns)->DesignRow(turns.first().optString("question").take(40),"${turns.size} 条 · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date((turns.first().getDouble("created")*1000).toLong()))}",icon="chat",divider=index<sessions.size-1){selectedSession=id}}}
+        for(i in 0 until rows.length()){val row=rows.getJSONObject(i);if(!debug&&row.optString("session_id")!=selectedSession)continue;Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date((row.getDouble("created")*1000).toLong())),fontSize=12.sp)
             Text("我：${row.getString("question")}");Text("小伙伴：${row.getString("answer")}")
             Row{TextButton(onClick={launch{val audio=withContext(Dispatchers.IO){api.raw("/v1/records/${row.getString("id")}/speech","POST",JSONObject().toBody())};play(audio)}},enabled=!busy){Text("朗读回答")};TextButton(onClick={remove=row.getString("id")},enabled=!busy){Text("删除")}}

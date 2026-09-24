@@ -28,8 +28,25 @@ import java.util.UUID
     fun exit(){if(busy)return;if(config!=null&&config.toString()!=saved)leave=true else back()}
     LaunchedEffect(Unit){busy=true;try{load();if(section=="声音")models=withContext(Dispatchers.IO){api.json("/v1/models")}}catch(e:Exception){message=e.message ?: "无法读取配置"}finally{busy=false}}
     DisposableEffect(api){onDispose{api.cancel()}}
-    BackHandler { if(trial)trial=false else exit() }
+    BackHandler { when{trial->trial=false;preview->preview=false;revisions!=null->revisions=null;else->exit()} }
     if(trial&&config!=null){DebugChat(connection,back={trial=false},play=play,prompts=config!!.getJSONObject("prompts"),promptKind=promptKind);return}
+    if(preview&&config!=null){
+        val c=config!!;val text=c.getJSONObject("prompts").getString(promptKind).replace("{{robot_name}}",c.getString("nickname")).replace("{{age}}",c.getJSONObject("profile").optInt("ageAtBaseline").toString()).replace("{{english_level}}",c.getJSONObject("profile").getString("englishLevel"))
+        Page("提示词预览","",false,onBack={preview=false}){
+            Text("已填入变量的草稿 · 不使用孩子的记忆")
+            DesignGroup{Text(text,Modifier.padding(16.dp))}
+            DetailDisclosure("固定规则与输入边界"){Text("权限、使用时间和资源审核由程序执行。用户问题、观察结果和记忆作为数据独立传入，不作为系统指令。")}
+            FullAction("用此草稿试聊"){preview=false;trial=true}
+            FullAction("返回编辑",secondary=true){preview=false}
+        };return
+    }
+    revisions?.let{versions->
+        Page("提示词版本","",false,onBack={revisions=null}){
+            Text("恢复旧版本只填回编辑区，保存后才应用。")
+            if(versions.length()==0)EmptyState("还没有历史版本")
+            else DesignGroup{for(i in 0 until versions.length()){val row=versions.getJSONObject(i);DesignRow("版本 ${row.getInt("version")}","恢复到编辑区",icon="chat",divider=i<versions.length()-1){config!!.put("prompts",row.getJSONObject("body"));config=JSONObject(config.toString());revisions=null;message="已恢复到编辑区，保存后才应用"}}}
+        };return
+    }
     Page(section,message,busy,onBack={exit()}) {
         val c=config
         if(c==null)Action("重新加载",!busy){launch{load()}}
@@ -52,6 +69,7 @@ import java.util.UUID
                     Row { for((key,label) in listOf("daily" to "日常","english" to "英语","story" to "故事","visual" to "视觉"))FilterChip(promptKind==key,{promptKind=key},label={Text(label)}) }
                     JsonField(prompts,promptKind,"默认提示词（最多4000字）",8)
                     Text("可用变量：{{robot_name}}、{{age}}、{{english_level}}。配置保存在家庭服务；新会话读取新版本。固定权限、时间限制及输出结构不受模板改变。",fontSize=12.sp)
+                    Row{for(variable in listOf("robot_name","age","english_level"))TextButton(onClick={prompts.put(promptKind,prompts.getString(promptKind)+"{{$variable}}");config=JSONObject(c.toString())}){Text("{{$variable}}",fontSize=11.sp)}}
                     Row { Action("预览内容"){preview=true};Action("草稿试聊"){trial=true} }
                     Action("恢复本项默认",!busy){launch{val defaults=withContext(Dispatchers.IO){api.json("/v1/prompts/defaults")};prompts.put(promptKind,defaults.getString(promptKind));config=JSONObject(c.toString());message="默认内容已填入，保存后才生效"}}
                     Action("历史版本",!busy){launch{revisions=withContext(Dispatchers.IO){api.array("/v1/prompts/versions")}}}
@@ -62,7 +80,7 @@ import java.util.UUID
                 }
                 "隐私与权限" -> {Toggle(c,"cameraAllowed","允许会话内使用相机");Toggle(c,"muted","麦克风静音");Toggle(c,"reducedMotion","减少表情动态");Text("许可开关不表示正在采集。所有模型运行在家庭电脑。")}
             }
-            Action("保存并应用",!busy){launch{
+            FullAction("保存并应用",enabled=!busy){launch{
                 val snapshot=JSONObject(c.toString());val command=UUID.randomUUID().toString()
                 val body=JSONObject().put("requestId",command).put("expectedVersion",version)
                 if(local){val settings=JSONObject();val keys=when(section){"唤醒与互动"->listOf("nickname","interaction");"AI 提示词"->listOf("prompts");"声音"->listOf("voice");else->listOf("cameraAllowed","muted","reducedMotion")};keys.forEach{settings.put(it,snapshot.get(it))};body.put("settings",settings)}else body.put("config",snapshot)
@@ -72,11 +90,9 @@ import java.util.UUID
                 if(state=="applied"){load();message=if(section=="唤醒与互动")"配置已确认；唤醒词等当前互动结束后生效，请核对状态并试叫" else if(section=="AI 提示词")"已保存；新会话使用新提示词，当前会话保持原版本" else "机器人已确认配置"}
                 else message="未确认应用（$state），输入保留，请核对当前版本后重试"
             }}
-            Action("重新读取已生效设置",!busy){if(c.toString()!=saved)reloadConfirm=true else launch{load()}}
+            FullAction("重新读取已生效设置",secondary=true,enabled=!busy){if(c.toString()!=saved)reloadConfirm=true else launch{load()}}
         }
     }
     if(reloadConfirm)AlertDialog(onDismissRequest={reloadConfirm=false},title={Text("重新读取当前配置？")},text={Text("将丢弃编辑区的修改，用服务器已生效版本替换。")},confirmButton={TextButton(onClick={reloadConfirm=false;launch{load()}}){Text("重新读取")}},dismissButton={TextButton(onClick={reloadConfirm=false}){Text("保留编辑")}})
     if(leave)AlertDialog(onDismissRequest={leave=false},title={Text("有未保存修改")},text={Text("离开会放弃编辑，已生效配置保持不变。")},confirmButton={TextButton(onClick={leave=false;back()}){Text("放弃并离开")}},dismissButton={TextButton(onClick={leave=false}){Text("继续编辑")}})
-    if(preview&&config!=null){val c=config!!;val text=c.getJSONObject("prompts").getString(promptKind).replace("{{robot_name}}",c.getString("nickname")).replace("{{age}}",c.getJSONObject("profile").optInt("ageAtBaseline").toString()).replace("{{english_level}}",c.getJSONObject("profile").getString("englishLevel"));AlertDialog(onDismissRequest={preview=false},title={Text("组合内容预览")},text={Text(text.take(4500),Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()))},confirmButton={TextButton(onClick={preview=false}){Text("返回编辑")}})}
-    revisions?.let{versions->AlertDialog(onDismissRequest={revisions=null},title={Text("提示词历史版本")},text={Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState())){if(versions.length()==0)Text("还没有历史版本");for(i in 0 until versions.length()){val row=versions.getJSONObject(i);TextButton(onClick={config!!.put("prompts",row.getJSONObject("body"));config=JSONObject(config.toString());revisions=null;message="已恢复到编辑区，保存后才应用"}){Text("恢复版本 ${row.getInt("version")}")}}}},confirmButton={TextButton(onClick={revisions=null}){Text("关闭")}})}
 }

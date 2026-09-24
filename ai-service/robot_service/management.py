@@ -186,6 +186,22 @@ def add_playlist(body: Playlist, request: Request, user=Depends(parent)):
     return {"id": pid}
 
 
+@router.put("/playlists/{pid}")
+def update_playlist(pid: str, body: Playlist, request: Request, user=Depends(parent)):
+    """Preserve playlist identity so scheduled plans keep referencing the edited list."""
+    with request.app.state.store.transaction() as db:
+        if not db.execute("SELECT 1 FROM playlists WHERE id=?", (pid,)).fetchone():
+            fail(404, "清单不存在")
+        for rid in body.resources:
+            if not db.execute(
+                "SELECT 1 FROM resources WHERE id=? AND status='published'", (rid,)
+            ).fetchone():
+                fail(422, "请选择已发布资源")
+        db.execute("UPDATE playlists SET name=?,resources=? WHERE id=?",
+                   (body.name, dumps(body.resources), pid))
+    return {"id": pid}
+
+
 @router.delete("/playlists/{pid}")
 def remove_playlist(pid: str, request: Request, user=Depends(parent)):
     with request.app.state.store.transaction() as db:

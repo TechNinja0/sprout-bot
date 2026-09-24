@@ -15,6 +15,7 @@ import java.io.File
 /** No changes to family service configuration. Restores local PIN, identity and theme. */
 @RunWith(AndroidJUnit4::class)
 class DesignAlignmentTest {
+    init { Configurator.getInstance().setWaitForIdleTimeout(200).setWaitForSelectorTimeout(2000) }
     @Test fun parentConnectionAndNavigation() {
         val inst=InstrumentationRegistry.getInstrumentation();val context=inst.targetContext
         val device=UiDevice.getInstance(inst);val vault=Vault(context);val identity=vault.get("identity")
