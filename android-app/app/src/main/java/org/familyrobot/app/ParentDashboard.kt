@@ -58,6 +58,7 @@ import java.util.UUID
     SectionHeading("内容与安排")
     DesignGroup{
         DesignRow("资源库","故事、图书、儿歌与英语短句",icon="book"){open("资源库")}
+        DesignRow("知识库","儿童百科与家庭知识 · 添加、试问和发布",icon="book"){open("知识库")}
         DesignRow("使用安排","可用时段与每日时长"){open("使用安排")}
         DesignRow("播放清单","选择资源和英语计划",icon="book",divider=false){open("清单")}
     }

@@ -146,6 +146,460 @@
         }
       }
     },
+    "/v1/knowledge": {
+      "get": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Listing",
+        "operationId": "listing_v1_knowledge_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "",
+                "enabled",
+                "draft",
+                "disabled"
+              ],
+              "type": "string",
+              "default": "",
+              "title": "State"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Create",
+        "operationId": "create_v1_knowledge_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Create"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/knowledge/preview": {
+      "post": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Preview",
+        "operationId": "preview_v1_knowledge_preview_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Preview"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/knowledge/{ident}": {
+      "get": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Read",
+        "operationId": "read_v1_knowledge__ident__get",
+        "parameters": [
+          {
+            "name": "ident",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ident"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Edit",
+        "operationId": "edit_v1_knowledge__ident__put",
+        "parameters": [
+          {
+            "name": "ident",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ident"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Edit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Delete",
+        "operationId": "delete_v1_knowledge__ident__delete",
+        "parameters": [
+          {
+            "name": "ident",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ident"
+            }
+          },
+          {
+            "name": "expectedVersion",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Expectedversion"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/knowledge/{ident}/publish": {
+      "post": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Publish",
+        "operationId": "publish_v1_knowledge__ident__publish_post",
+        "parameters": [
+          {
+            "name": "ident",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ident"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/robot_service__knowledge__Publish"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/knowledge/{ident}/disable": {
+      "post": {
+        "tags": [
+          "knowledge"
+        ],
+        "summary": "Disable",
+        "operationId": "disable_v1_knowledge__ident__disable_post",
+        "parameters": [
+          {
+            "name": "ident",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ident"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Version"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/models": {
       "get": {
         "summary": "Health",
@@ -1997,7 +2451,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Publish"
+                "$ref": "#/components/schemas/robot_service__schemas__Publish"
               }
             }
           }
@@ -3597,6 +4051,90 @@
         ],
         "title": "Body_upload_v1_resources__rid__assets_post"
       },
+      "Card": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Aliases"
+          },
+          "answer": {
+            "type": "string",
+            "maxLength": 550,
+            "title": "Answer",
+            "default": ""
+          },
+          "briefAnswer": {
+            "type": "string",
+            "maxLength": 150,
+            "title": "Briefanswer",
+            "default": ""
+          },
+          "detailAnswer": {
+            "type": "string",
+            "maxLength": 580,
+            "title": "Detailanswer",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Category",
+            "default": "生活常识"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "encyclopedia",
+              "family"
+            ],
+            "title": "Kind",
+            "default": "encyclopedia"
+          },
+          "minAge": {
+            "type": "integer",
+            "maximum": 18.0,
+            "minimum": 3.0,
+            "title": "Minage",
+            "default": 3
+          },
+          "maxAge": {
+            "type": "integer",
+            "maximum": 18.0,
+            "minimum": 3.0,
+            "title": "Maxage",
+            "default": 12
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Source",
+            "default": ""
+          },
+          "sourceUrl": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Sourceurl",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "Card"
+      },
       "ClaimPoll": {
         "properties": {
           "claim": {
@@ -3771,6 +4309,24 @@
         ],
         "title": "Control"
       },
+      "Create": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$",
+            "title": "Id"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/Card"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "draft"
+        ],
+        "title": "Create"
+      },
       "DebugTurn": {
         "properties": {
           "sessionId": {
@@ -3834,6 +4390,25 @@
           "state"
         ],
         "title": "DownloadState"
+      },
+      "Edit": {
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/Card"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expectedVersion",
+          "draft"
+        ],
+        "title": "Edit"
       },
       "FailureCounts": {
         "properties": {
@@ -4529,6 +5104,50 @@
         "type": "object",
         "title": "Policy"
       },
+      "Preview": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "age": {
+            "type": "integer",
+            "maximum": 18.0,
+            "minimum": 3.0,
+            "title": "Age",
+            "default": 5
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "standard",
+              "brief",
+              "detail"
+            ],
+            "title": "Mode",
+            "default": "auto"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Card"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "Preview"
+      },
       "Profile": {
         "properties": {
           "ageAtBaseline": {
@@ -4636,28 +5255,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Prompts"
-      },
-      "Publish": {
-        "properties": {
-          "expectedVersion": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Expectedversion"
-          },
-          "requestId": {
-            "type": "string",
-            "maxLength": 80,
-            "minLength": 16,
-            "title": "Requestid"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "expectedVersion",
-          "requestId"
-        ],
-        "title": "Publish"
       },
       "Recover": {
         "properties": {
@@ -5019,6 +5616,21 @@
         ],
         "title": "ValidationError"
       },
+      "Version": {
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expectedVersion"
+        ],
+        "title": "Version"
+      },
       "Voice": {
         "properties": {
           "quality": {
@@ -5096,6 +5708,49 @@
         "additionalProperties": false,
         "type": "object",
         "title": "Voice"
+      },
+      "robot_service__knowledge__Publish": {
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          },
+          "reviewed": {
+            "type": "boolean",
+            "const": true,
+            "title": "Reviewed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expectedVersion",
+          "reviewed"
+        ],
+        "title": "Publish"
+      },
+      "robot_service__schemas__Publish": {
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          },
+          "requestId": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 16,
+            "title": "Requestid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expectedVersion",
+          "requestId"
+        ],
+        "title": "Publish"
       }
     }
   }

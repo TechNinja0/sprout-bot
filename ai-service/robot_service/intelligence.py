@@ -309,6 +309,22 @@ def named_read_request(text):
     return bool(re.match(r"^(?:please\s+)?read\s+", text.strip(), re.I))
 
 
+def effective_age(config):
+    profile = config["profile"]
+    baseline = date.fromisoformat(profile["baseline"])
+    today = datetime.now(ZoneInfo(config["policy"]["timezone"])).date()
+    return min(
+        18,
+        profile["ageAtBaseline"]
+        + max(
+            0,
+            today.year
+            - baseline.year
+            - ((today.month, today.day) < (baseline.month, baseline.day)),
+        ),
+    )
+
+
 def route(text):
     t = re.sub(r"[\s，。！？,.!?]", "", text).lower()
     if t in ("停", "停止", "停一下", "别说了", "stop", "暂停", "pause") or t.startswith(
@@ -394,6 +410,11 @@ async def execute_turn(body: Turn, request: Request, user):
     config = Config.model_validate(config).model_dump(mode="json")
     session_key = (user["id"], body.sessionId)
     prior = request.app.state.sessions.get(session_key, {})
+    if (
+        prior.get("knowledgeSeen")
+        and prior.get("knowledgeRevision") != request.app.state.knowledge.revision
+    ):
+        prior = {**prior, "history": []}
     templates = (
         prior.get("prompts", config["prompts"])
         if time.monotonic() - prior.get("at", 0) < 600
@@ -421,18 +442,7 @@ async def execute_turn(body: Turn, request: Request, user):
     if intent not in ("chat", "game") or original:
         request.app.state.games.pop(game_key, None)
     profile = config["profile"]
-    baseline = date.fromisoformat(profile["baseline"])
-    today = datetime.now(ZoneInfo(config["policy"]["timezone"])).date()
-    age = min(
-        18,
-        profile["ageAtBaseline"]
-        + max(
-            0,
-            today.year
-            - baseline.year
-            - ((today.month, today.day) < (baseline.month, baseline.day)),
-        ),
-    )
+    age = effective_age(config)
     performances = {"开心": "happy", "大笑": "laugh", "委屈": "hurt", "大哭": "cry"}
     if any(x in body.text for x in ("表演", "做个", "做一个")):
         for word, expression in performances.items():
@@ -578,6 +588,49 @@ async def execute_turn(body: Turn, request: Request, user):
         )
         if game_text:
             return {"action": "speak", "text": game_text}
+    knowledge_revision = request.app.state.knowledge.revision
+    # 已核对的知识直接答，不争抢对话模型槽；图像和视觉指代仍交给视觉路径。
+    if (
+        not original
+        and not body.image
+        and not body.visualRequest
+        and not (prior.get("vision") and refers_to_previous_object(body.text))
+    ):
+        from .knowledge import FOLLOWUPS, normalize, try_answer
+
+        known = try_answer(
+            request, body.text, age, prior, profile["expression"] == "simple"
+        )
+        if known:
+            sessions = request.app.state.sessions
+            now = time.monotonic()
+            for key in list(sessions):
+                if now - sessions[key]["at"] > 600:
+                    sessions.pop(key, None)
+            if len(sessions) >= 100 and session_key not in sessions:
+                sessions.pop(next(iter(sessions)))
+            history = prior.get("history", []) if now - prior.get("at", 0) < 600 else []
+            sessions[session_key] = {
+                "at": now,
+                "prompts": templates,
+                "knowledge": known.get("knowledge")
+                or (
+                    prior.get("knowledge")
+                    if normalize(body.text) in FOLLOWUPS
+                    else None
+                ),
+                "pendingKnowledge": known["candidates"][0]["id"]
+                if known["status"] == "clarify"
+                else None,
+                "knowledgeSeen": True,
+                "knowledgeRevision": knowledge_revision,
+                "history": [
+                    *history,
+                    {"role": "user", "content": body.text},
+                    {"role": "assistant", "content": known["text"]},
+                ][-10:],
+            }
+            return known
     memory_epoch = request.app.state.memory_epoch
     memory = [
         json.loads(r["body"])["content"]
@@ -724,6 +777,8 @@ async def execute_turn(body: Turn, request: Request, user):
         request.app.state.dialogue_slots.release()
     if request.app.state.memory_epoch != memory_epoch:
         fail(409, "记忆已更新，本次旧回答已取消，请重新提问")
+    if request.app.state.knowledge.revision != knowledge_revision:
+        fail(409, "知识已更新，本次旧回答已取消，请重新提问")
     if not text:
         fail(503, "没有生成可朗读回答")
     # 输出有界；局部规则只是确定性底线，不宣称模型已完成儿童安全认证。
@@ -755,6 +810,8 @@ async def execute_turn(body: Turn, request: Request, user):
         "at": now,
         "prompts": templates,
         "vision": visual_state,
+        "knowledgeSeen": prior.get("knowledgeSeen", False),
+        "knowledgeRevision": knowledge_revision,
         "history": [
             *history,
             {"role": "user", "content": body.text},

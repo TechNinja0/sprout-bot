@@ -197,8 +197,10 @@ def update_playlist(pid: str, body: Playlist, request: Request, user=Depends(par
                 "SELECT 1 FROM resources WHERE id=? AND status='published'", (rid,)
             ).fetchone():
                 fail(422, "请选择已发布资源")
-        db.execute("UPDATE playlists SET name=?,resources=? WHERE id=?",
-                   (body.name, dumps(body.resources), pid))
+        db.execute(
+            "UPDATE playlists SET name=?,resources=? WHERE id=?",
+            (body.name, dumps(body.resources), pid),
+        )
     return {"id": pid}
 
 
@@ -290,7 +292,15 @@ def downloads(request: Request, user=Depends(principal)):
 
 
 def export_library(store):
-    tables = ("resources", "revisions", "assets", "memories", "playlists", "tombstones")
+    tables = (
+        "resources",
+        "revisions",
+        "assets",
+        "memories",
+        "playlists",
+        "tombstones",
+        "knowledge_cards",
+    )
     # 读取一致快照，不含安装凭证、配置秘密、会话音视频。
     with store.transaction() as db:
         data = {t: [dict(r) for r in db.execute("SELECT * FROM " + t)] for t in tables}
@@ -358,6 +368,16 @@ def restore_library(store, raw):
         for asset in data["assets"]:
             if digest(payloads["assets/" + asset["id"]]) != asset["hash"]:
                 raise ValueError("素材哈希不匹配")
+        from .knowledge import MAX_CARDS, Card
+
+        knowledge = data.get("knowledge_cards", [])
+        if sum(row["state"] != "deleted" for row in knowledge) > MAX_CARDS:
+            raise ValueError("知识卡片超限")
+        for row in knowledge:
+            if not __import__("re").fullmatch(r"[a-f0-9]{32}", row["id"]):
+                raise ValueError("知识ID无效")
+            if row["state"] != "deleted":
+                Card.model_validate_json(row["draft"])
         # 文件写入与数据库失败一起回滚，不遗留占用容量的孤立恢复素材。
         # 永不覆盖现有资源，恢复时创建独立草稿；墓碑ID跳过，避免旧备份复活。
         with store.new_content_batch() as created_files, store.transaction() as db:
@@ -457,9 +477,49 @@ def restore_library(store, raw):
                         "INSERT INTO playlists VALUES(?,?,?)",
                         (playlist["id"], validated.name, dumps(validated.resources)),
                     )
+            restored_knowledge = 0
+            for row in knowledge:
+                if row["id"] in blocked or row["state"] == "deleted":
+                    continue
+                old = db.execute(
+                    "SELECT version,origin FROM knowledge_cards WHERE id=?",
+                    (row["id"],),
+                ).fetchone()
+                # 仅可替换从未编辑的内置卡；已有家长内容绝不覆盖。
+                if old and not (old["origin"] == "builtin" and old["version"] == 1):
+                    continue
+                card = Card.model_validate_json(row["draft"]).model_dump()
+                version = max(int(row["version"]), old["version"] if old else 0) + 1
+                db.execute(
+                    "INSERT OR REPLACE INTO knowledge_cards VALUES(?,?,?,?,?,?,?)",
+                    (
+                        row["id"],
+                        version,
+                        "builtin" if old else "parent",
+                        "draft",
+                        dumps(card),
+                        None,
+                        time.time(),
+                    ),
+                )
+                restored_knowledge += 1
+            for t in data["tombstones"]:
+                if t["kind"] == "knowledge":
+                    db.execute(
+                        "UPDATE knowledge_cards SET state='deleted',draft='{}',published=NULL,version=version+1 WHERE id=?",
+                        (t["id"],),
+                    )
+            if (
+                db.execute(
+                    "SELECT COUNT(*) FROM knowledge_cards WHERE state!='deleted'"
+                ).fetchone()[0]
+                > MAX_CARDS
+            ):
+                raise ValueError("恢复后知识卡片超限")
             bump_catalog(db)
     return {
         "restoredDrafts": len(restored),
+        "restoredKnowledgeDrafts": restored_knowledge,
         "audio": "regenerate",
         "credentials": "not_restored",
     }
@@ -494,6 +554,11 @@ async def restore(
     if len(raw) > 32 * 1024 * 1024:
         fail(413, "手机恢复限制32MB；更大备份使用本地工具")
     try:
-        return restore_library(store, raw)
+        from .knowledge import changed
+
+        with request.app.state.knowledge.lock:
+            result = restore_library(store, raw)
+            changed(request)
+        return result
     except (ValueError, KeyError, zipfile.BadZipFile):
         fail(422, "备份结构或校验无效")

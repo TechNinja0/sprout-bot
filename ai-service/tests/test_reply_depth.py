@@ -53,7 +53,7 @@ def test_complete_reply_reaches_history_and_speech(system, monkeypatch, story, r
         headers=headers,
         json={
             "sessionId": session,
-            "text": "编一个小兔子的故事" if story else "为什么会下雨？",
+            "text": "编一个小兔子的故事" if story else "请解释下雨的过程",
         },
     )
     assert response.status_code == 200, response.text
@@ -74,7 +74,7 @@ def test_complete_reply_reaches_history_and_speech(system, monkeypatch, story, r
 @pytest.mark.parametrize(
     "kind,question",
     [
-        ("daily", "为什么会下雨？"),
+        ("daily", "请解释下雨的过程"),
         ("daily", "讲个小兔子的故事"),
         ("story", "小兔子送礼物"),
         ("english", "下雨用英文怎么说？"),

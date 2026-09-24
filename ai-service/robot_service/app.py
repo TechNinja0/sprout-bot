@@ -16,6 +16,8 @@ from .diagnostics import router as diagnostics_router
 from .imports import router as imports_router
 from .intelligence import router as intelligence_router
 from .keywords import router as keywords_router
+from .knowledge import Knowledge
+from .knowledge import router as knowledge_router
 from .library import router as library_router
 from .management import router as management_router
 from .preload import preload
@@ -119,6 +121,7 @@ def create_app(root: Path | str = "runtime"):
         redoc_url=None,
     )
     app.state.store = Store(Path(root))
+    app.state.knowledge = Knowledge(app.state.store)
     app.state.speech_worker = SpeechWorker()
     app.state.model_slots = asyncio.Semaphore(1)
     app.state.library_worker = SpeechWorker()
@@ -137,6 +140,7 @@ def create_app(root: Path | str = "runtime"):
     app.add_middleware(BoundedBody)
     app.include_router(audio_preparation_router)
     app.include_router(keywords_router)
+    app.include_router(knowledge_router)
     app.include_router(intelligence_router)
     app.include_router(auth_router)
     app.include_router(companion_router)

@@ -50,3 +50,11 @@ HTTPS JSON API，统一 `/v1`。完整字段由服务端 Pydantic 与 `/openapi.
 - `GET/DELETE /records?kind=companion|debug`、`DELETE /records/{id}` 和 `POST /records/{id}/speech`：陪伴记录仅家长可访问，调试记录仅原设备可访问。`history.enabled` 默认 false，`history.days` 为 7/30/90。过期和删除后不再提供朗读，回答音频按已保存文本/声音重新合成，原始儿童音频不保存。
 - 心跳新增 playback（状态、资源/版本、标题、段落、总段数、毫秒位置）、wakeName/wakeVersion；控制 ACK 不等于实际播放。Voice.quality 为 standard/high，前者输出16kHz，后者保留原采样率。两档不代表两种模型。
 - 主题为手机本地浅色/深色偏好，不属于共享服务配置。新 APK 与服务需配套更新。
+
+### 家庭知识库
+
+家长管理与试问使用 `/v1/knowledge`（CRUD）、`/{id}/publish`、`/{id}/disable`、`/preview`；所有写入携带 `expectedVersion`，发布还需 `reviewed=true`。保存草稿不替换已发布答案。详情包含 `draft`、`published`、`hasChanges`；列表按 `q` / `state` 筛选，最多返回 200 条，`total` 表示全部匹配数。
+
+儿童 `/v1/turns` 和标准 `/v1/debug/turn` 命中时返回 `knowledgeStatus`、`knowledge`（ID、发布版本、问题、来源）与 `lookupMs`，`text` 可以直接交给现有朗读接口。检索不调用模型；相近问法先澄清，明确科普问题未命中时给出可靠性降级说明。提示词草稿调试继续使用模型。
+
+备份新增可选 `knowledge_cards` 数据集，兼容旧备份。恢复知识为待审核草稿，保留删除墓碑；已有家长编辑版本不会被覆盖，未修改的内置初始卡可由备份草稿替换。恢复结果增加 `restoredKnowledgeDrafts`。
