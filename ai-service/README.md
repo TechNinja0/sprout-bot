@@ -21,6 +21,7 @@ ai-service/.venv/bin/robot-service --data runtime serve --bind 0.0.0.0
 | --- | --- |
 | `auth.py` / `store.py` | 登记、配对/撤销、短时命令、角色权限与事务 |
 | `library.py` | 草稿、固定发布版本、识书检索、原文清单和进度 |
+| `audio_preparation.py` | 发布音频持久队列、重启恢复、按需与后台合成去重、进度及重试 |
 | `imports.py` / `extract.py` | 家长原稿导入、页级OCR、任务重试取消 |
 | `intelligence.py` / `model_worker.py` | 本地ASR/TTS/LLM/VLM、明确意图、超时、临时上下文 |
 | `tts.py` / `tts_worker.py` / `tts_qwen.py` / `tts_kokoro.py` | 可替换的本地语音接口、单实例独立环境、音色与语气能力 |
@@ -32,3 +33,5 @@ ai-service/.venv/bin/robot-service --data runtime serve --bind 0.0.0.0
 | `cli.py` | TLS初始化、恢复、备份和服务启动 |
 
 `ai-service/.venv/bin/python -m pytest ai-service/tests -q`使用隔离临时库；`scripts/model_smoke.py`另行调用真实模型与原创资料。真实家庭资料、目标儿童与长时测试单列，见[自测记录](../docs/engineering/自测记录.md)。
+
+图书发布后默认自动准备朗读音频，家长可在资源详情查看进度和重试；参见[图书音频准备与连贯播放](../docs/engineering/图书音频准备与连贯播放.md)。

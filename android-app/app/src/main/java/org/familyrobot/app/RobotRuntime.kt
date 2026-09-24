@@ -777,7 +777,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
             }
         }
     }
-    private suspend fun <T> retryBusy(action:()->T):T {
+    private suspend fun <T> retryBusy(action:suspend ()->T):T {
         repeat(6) { attempt ->
             try { return action() }
             catch(e:java.io.IOException) { if(!e.message.orEmpty().startsWith("429") || attempt==5)throw e;delay((attempt+1)*1000L) }
@@ -807,55 +807,43 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         val m=currentManifest ?: return
         val rid=m.getString("resourceId");val revision=m.getString("revisionId");val ticket=session.generation
         session.startMedia(SystemClock.elapsedRealtime(),if(m.optString("kind")=="song")ActivityMode.SONG else ActivityMode.BOOK)
-        val notice=m.optJSONObject("scopeNotice")
-        if(notice!=null && scopeAnnouncedRevision!=revision) {
-            val id=notice.getString("id")
-            val audio=withContext(Dispatchers.IO) {
-                fun offlineNotice():ByteArray {
-                    check(readOffline(rid).getString("revisionId")==revision)
-                    return File(cache,"$rid/$id.bin").readBytes()
-                }
-                if(!online)offlineNotice() else try { api.raw("/v1/resources/$rid/audio/$id?revisionId=$revision") }
-                catch(error:java.io.IOException) {
-                    if(error is ApiHttpException || error is javax.net.ssl.SSLException)throw error
-                    val cached=offlineNotice()
-                    withContext(Dispatchers.Main) { if(online)failure("network");online=false }
-                    cached
-                }
-            }
-            if(!session.valid(ticket) || !session.mediaPlaying)return
-            playAudio(audio,ticket,false)
-            if(!session.valid(ticket) || !session.mediaPlaying)return
-            scopeAnnouncedRevision=revision
-        }
         val segments=m.getJSONArray("segments");val original=m.optString("audioAsset")
-        val count=if(original.isNotEmpty())1 else segments.length()
-        while(segmentIndex<count && session.mediaPlaying) {
-            val id=if(original.isNotEmpty())"audio" else segments.getJSONObject(segmentIndex).getString("id")
-            val filename="$id.bin"
-            val bytes=withContext(Dispatchers.IO) {
-                fun offlineAudio():ByteArray {
-                    check(readOffline(rid).getString("revisionId")==revision) { "离线版本与当前阅读版本不同" }
-                    return File(cache,"$rid/$filename").readBytes()
-                }
-                if(!online)offlineAudio() else try {
-                    if(original.isNotEmpty())api.raw("/v1/assets/$original")
-                    else api.raw("/v1/resources/$rid/audio/$id?revisionId=$revision")
-                } catch(error:java.io.IOException) {
-                    if(error is ApiHttpException || error is javax.net.ssl.SSLException)throw error
-                    val cached=offlineAudio()
-                    withContext(Dispatchers.Main) { if(online)failure("network");online=false }
-                    cached
-                }
+        val notice=m.optJSONObject("scopeNotice")
+        // 清单固定在当前版本/起点；暂停、换书、跳页会取消整个有界预取作用域。
+        val items=mutableListOf<Pair<String,Int?>>()
+        if(notice!=null && scopeAnnouncedRevision!=revision)items.add(notice.getString("id") to null)
+        if(original.isNotEmpty()) {
+            if(segmentIndex==0)items.add("audio" to 0)
+        } else for(index in segmentIndex until segments.length())items.add(segments.getJSONObject(index).getString("id") to index)
+        val completed=playWithLookahead(items.size,load={ index ->
+            val id=items[index].first
+            suspend fun offlineAudio():ByteArray=withContext(Dispatchers.IO) {
+                check(readOffline(rid).getString("revisionId")==revision) { "离线版本与当前阅读版本不同" }
+                File(cache,"$rid/$id.bin").readBytes()
             }
-            if(!session.mediaPlaying)return
-            playAudio(bytes,ticket,true)
-            if(!session.mediaPlaying)return
-            val completedOffset=offsetMs
-            segmentIndex++
-            queueProgress(rid,revision,id,completedOffset)
-            offsetMs=0
-        }
+            if(!online)offlineAudio() else try {
+                retryBusy { api.audio(if(id=="audio")"/v1/assets/$original" else "/v1/resources/$rid/audio/$id?revisionId=$revision") }
+            } catch(error:java.io.IOException) {
+                if(error is ApiHttpException || error is javax.net.ssl.SSLException)throw error
+                val cached=offlineAudio()
+                if(online)failure("network");online=false
+                cached
+            }
+        },play={ index,bytes ->
+            if(!session.valid(ticket) || !session.mediaPlaying)return@playWithLookahead false
+            val (id,position)=items[index]
+            // 心跳撤回会取消当前作用域；旧会话的预取结果不得开始播放。
+            playAudio(bytes,ticket,position!=null)
+            if(!session.valid(ticket) || !session.mediaPlaying)return@playWithLookahead false
+            if(position==null)scopeAnnouncedRevision=revision else {
+                val completedOffset=offsetMs
+                segmentIndex=position+1
+                queueProgress(rid,revision,id,completedOffset)
+                offsetMs=0
+            }
+            true
+        })
+        if(!completed)return
         session.playbackEnded(session.generation,SystemClock.elapsedRealtime());currentManifest=null;vault.remove(robotKey(connection,"reading"))
         if(queue.isNotEmpty() && session.allowed)playResource(queue.removeFirst(),true)
     }

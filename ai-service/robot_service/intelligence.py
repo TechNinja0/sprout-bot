@@ -22,12 +22,12 @@ from pydantic import Field
 
 from .auth import fail, parent, principal, robot
 from .extract import ocr
-from .library import lookup, published, scope_notice
+from .library import lookup
 from .local_models import TEXT_MODEL, VISION_MODEL
 from .schemas import Lookup, Strict, Voice
 from .store import digest, dumps
-from .tts import LEGACY_PROFILE, make_request, render_profile
 from .tts import capabilities as tts_capabilities
+from .tts import make_request
 from .vision import VisualObservation, refers_to_previous_object, select_previous_object
 from .vision import evaluate as render_vision
 from .vision import instructions as vision_instructions
@@ -41,7 +41,7 @@ def root(request):
     )
 
 
-async def worker(request, task, timeout=90, background=False):
+async def worker(request, task, timeout=90, background=False, bulk=False):
     sem = (
         request.app.state.library_slots if background else request.app.state.model_slots
     )
@@ -56,7 +56,9 @@ async def worker(request, task, timeout=90, background=False):
     # 对话在当前段落结束后优先；不复制大模型，不允许无限排队。
     try:
         if task.get("kind") == "tts":
-            await sem.acquire(background=background, timeout=1 if background else 10)
+            await sem.acquire(
+                background=background, bulk=bulk, timeout=1 if background else 10
+            )
         else:
             await asyncio.wait_for(sem.acquire(), 1)
     except TimeoutError:
@@ -112,7 +114,7 @@ def quiet_sentences(sentences, question):
     return result
 
 
-async def speech(request, text, voice, story=False, background=False):
+async def speech(request, text, voice, story=False, background=False, bulk=False):
     if not text.strip():
         fail(422, "没有可朗读文字")
     try:
@@ -128,6 +130,7 @@ async def speech(request, text, voice, story=False, background=False):
             "story": story,
         },
         background=background,
+        bulk=bulk,
     )
     from .tts import output_quality
 
@@ -202,33 +205,9 @@ async def segment_audio(
     revisionId: str,
     user=Depends(principal),
 ):
-    store = request.app.state.store
-    _, revision = published(store, rid, revisionId)
-    b = revision["body"]
-    seg = next((s for s in b["segments"] if s["id"] == segment_id), None)
-    notice = scope_notice(b)
-    if notice and segment_id == notice["id"]:
-        seg = {**notice, "pronunciation": {}}
-    if not seg:
-        fail(404, "段落不存在")
-    path = store.root / "audio" / revision["id"] / f"{seg['id']}.wav"
-    if not path.is_file():
-        if b.get("ttsProfile", LEGACY_PROFILE) != render_profile():
-            fail(
-                409,
-                "此版本使用其他语音引擎；请在家长端重新试听并发布新版本，或恢复原引擎以继续生成",
-            )
-        text = seg["text"]
-        for src, dst in sorted(seg["pronunciation"].items(), key=lambda x: -len(x[0])):
-            if src:
-                text = text.replace(src, dst)
-        audio = await speech(
-            request, text, Voice.model_validate(b["voice"]), True, background=True
-        )
-        # 模型运行期间可能被撤回/删除，再验证后才落盘。
-        published(store, rid, revisionId)
-        store.write_content(path, audio)
-    data = path.read_bytes()
+    data = await request.app.state.audio_preparation.ensure(
+        request, rid, revisionId, segment_id
+    )
     return Response(
         data,
         media_type="audio/wav",

@@ -1,6 +1,11 @@
 package org.familyrobot.app
 
 import okhttp3.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
@@ -58,6 +63,42 @@ class Api(val connection:JSONObject) {
             }
             if(it.header("X-Content-SHA256")?.let { hash -> hash!=sha256(bytes) }==true) throw IOException("音频校验失败")
             return bytes
+        }
+    }
+    /** 阅读预取可独立取消，暂停/跳页不会继续占用连接或误取消心跳。 */
+    suspend fun audio(path:String):ByteArray {
+        withContext(Dispatchers.IO) {
+            synchronized(identityLock) {
+                val now=android.os.SystemClock.elapsedRealtime()
+                if(identityCheckedAt==Long.MIN_VALUE || now-identityCheckedAt>=15000)checkIdentity()
+            }
+        }
+        return suspendCancellableCoroutine { continuation ->
+            val builder=Request.Builder().url(address+path)
+            connection.optString("token").takeIf { it.isNotEmpty() }?.let { builder.header("Authorization","Bearer $it") }
+            val call=client.newCall(builder.build())
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object:Callback {
+                override fun onFailure(call:Call,e:IOException) {
+                    if(continuation.isActive)continuation.resumeWithException(e)
+                }
+                override fun onResponse(call:Call,response:Response) {
+                    try {
+                        val bytes=response.use {
+                            val data=it.body?.bytes() ?: byteArrayOf()
+                            if(!it.isSuccessful) {
+                                val reason=runCatching { JSONObject(String(data)).optString("detail") }.getOrDefault("")
+                                throw ApiHttpException(it.code,"${it.code}：${reason.take(160)}")
+                            }
+                            if(it.header("X-Content-SHA256")?.let { hash -> hash!=sha256(data) }==true)throw IOException("音频校验失败")
+                            data
+                        }
+                        if(continuation.isActive)continuation.resume(bytes)
+                    } catch(error:Exception) {
+                        if(continuation.isActive)continuation.resumeWithException(error)
+                    }
+                }
+            })
         }
     }
     fun json(path:String,method:String="GET",body:JSONObject?=null,timeoutMs:Long?=null)=JSONObject(String(raw(path,method,body?.toString()?.toRequestBody("application/json".toMediaType()),timeoutMs=timeoutMs)))

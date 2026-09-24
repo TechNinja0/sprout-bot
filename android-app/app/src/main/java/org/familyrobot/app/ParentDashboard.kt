@@ -74,6 +74,7 @@ import java.util.UUID
     androidx.activity.compose.BackHandler(onBack=back)
     Page("资源详情",message,busy,onBack=back){value?.let{v->val draft=v.getJSONObject("draft");val published=v.optString("status")=="published"
         Text(draft.getString("title"),fontSize=24.sp);Text(if(published)"已发布固定版本 · 工作草稿可独立编辑" else "草稿 / 已下架")
+        if(published)AudioPreparationStatus(api,rid,v.optString("published_id"))
         val downloaded=(0 until downloads.length()).map{downloads.getJSONObject(it)}.firstOrNull{it.optString("resource_id")==rid}
         InfoRow("机器人离线副本",downloaded?.optString("state")?.let{resourceStatus(it)} ?: "未下载")
         Text(if(draft.optString("audioAsset").isNotEmpty())"原录音 · 保留原声" else "按发布版本的声音设置朗读")

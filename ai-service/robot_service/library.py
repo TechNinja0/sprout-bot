@@ -282,6 +282,9 @@ def publish(rid: str, body: Publish, request: Request, user=Depends(parent)):
             "UPDATE resources SET published_id=?,status='published',updated=? WHERE id=?",
             (rev, time.time(), rid),
         )
+        from .audio_preparation import enqueue
+
+        enqueue(db, rid, rev, snapshot)
         bump_catalog(db)
         result = {"resourceId": rid, "revisionId": rev, "state": "published"}
         db.execute(
@@ -293,7 +296,7 @@ def publish(rid: str, body: Publish, request: Request, user=Depends(parent)):
 @router.post("/resources/{rid}/unlist")
 def unlist(rid: str, request: Request, user=Depends(parent)):
     store = request.app.state.store
-    with store.transaction() as db:
+    with store.content_lock, store.transaction() as db:
         row = db.execute(
             "SELECT id FROM resources WHERE id=? AND status!='deleted'", (rid,)
         ).fetchone()
@@ -310,6 +313,9 @@ def unlist(rid: str, request: Request, user=Depends(parent)):
         db.execute(
             "INSERT OR REPLACE INTO tombstones VALUES(?,?,?)",
             (rid, "resource", time.time()),
+        )
+        db.execute(
+            "UPDATE audio_jobs SET state='cancelled' WHERE resource_id=?", (rid,)
         )
         bump_catalog(db)
     return {"state": "unlisted", "offline": "pending_sync"}
@@ -336,6 +342,7 @@ def delete(rid: str, request: Request, user=Depends(parent)):
             "UPDATE jobs SET state='cancelled',result='{}' WHERE resource_id=?", (rid,)
         )
         db.execute("DELETE FROM progress WHERE resource_id=?", (rid,))
+        db.execute("DELETE FROM audio_jobs WHERE resource_id=?", (rid,))
     for asset in assets:
         (store.root / "assets" / asset["id"]).unlink(missing_ok=True)
     # 缓存按revision隔离，避免删除共享资源。

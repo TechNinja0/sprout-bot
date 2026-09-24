@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from .audio_preparation import AudioPreparation
+from .audio_preparation import router as audio_preparation_router
 from .auth import router as auth_router
 from .companion import router as companion_router
 from .diagnostics import router as diagnostics_router
@@ -87,6 +89,12 @@ def create_app(root: Path | str = "runtime"):
                     await asyncio.to_thread(purge, app.state.store, row["robot_id"])
                 await asyncio.sleep(60)
 
+        app.state.audio_preparation.recover()
+        preparation = (
+            asyncio.create_task(app.state.audio_preparation.run())
+            if os.environ.get("ROBOT_PREPARE_AUDIO", "1") != "0"
+            else None
+        )
         history_cleanup = asyncio.create_task(expire_history())
         yield
         history_cleanup.cancel()
@@ -94,6 +102,10 @@ def create_app(root: Path | str = "runtime"):
         if warmup is not None:
             warmup.cancel()
             await asyncio.gather(warmup, return_exceptions=True)
+        if preparation is not None:
+            preparation.cancel()
+            await asyncio.gather(preparation, return_exceptions=True)
+        await app.state.audio_preparation.close()
         await app.state.speech_worker.close()
         await app.state.library_worker.close()
         await app.state.tts_worker.close()
@@ -114,6 +126,7 @@ def create_app(root: Path | str = "runtime"):
     # 试听、回答、资源朗读共用一个 TTS 实例，避免在 16GB Mac 上重复加载大模型。
     app.state.tts_worker = SpeechWorker("robot_service.tts_worker", worker_python())
     app.state.tts_slots = PrioritySlot()
+    app.state.audio_preparation = AudioPreparation(app)
     app.state.dialogue_slots = asyncio.Semaphore(1)
     app.state.sessions = {}
     app.state.debug_sessions = {}
@@ -122,6 +135,7 @@ def create_app(root: Path | str = "runtime"):
     app.state.memory_referents = {}
     app.state.model_warmup = "disabled"
     app.add_middleware(BoundedBody)
+    app.include_router(audio_preparation_router)
     app.include_router(keywords_router)
     app.include_router(intelligence_router)
     app.include_router(auth_router)
