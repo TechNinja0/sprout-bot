@@ -220,7 +220,7 @@ def edit(rid: str, body: ResourceEdit, request: Request, user=Depends(parent)):
             fail(409, "草稿版本冲突")
         validate_assets(db, rid, body.draft)
         payload = body.draft.model_dump()
-        # 任何正文/声音/页序/完整范围改变必须重新试听；不能沿用旧复选框。
+        # 正文/声音/页序/范围改变清除旧试听记录；试听是可选检查，不作为发布门槛。
         old = json.loads(row["draft"])
         if any(
             old.get(k) != payload.get(k)
@@ -255,8 +255,6 @@ def publish(rid: str, body: Publish, request: Request, user=Depends(parent)):
             fail(409, "草稿版本冲突")
         draft = ResourceDraft.model_validate_json(row["draft"])
         validate_assets(db, rid, draft)
-        if not draft.auditioned:
-            fail(422, "请先完成试听确认")
         if not draft.complete and not draft.excerpt.strip():
             fail(422, "需确认完整范围或填写节选范围")
         if not draft.audioAsset and not any(
@@ -269,6 +267,8 @@ def publish(rid: str, body: Publish, request: Request, user=Depends(parent)):
             fail(422, "儿歌需上传实际音频；文字朗读请使用故事或英语短句分类")
         if any(not p.reviewed for p in draft.pages):
             fail(422, "仍有未审核页面")
+        if any(not p.skip and not p.text.strip() for p in draft.pages):
+            fail(422, "空白页需补齐正文或标记为不朗读")
         snapshot = draft.model_dump()
         snapshot["segments"] = segments(snapshot)
         snapshot["scopeNotice"] = scope_notice(snapshot)

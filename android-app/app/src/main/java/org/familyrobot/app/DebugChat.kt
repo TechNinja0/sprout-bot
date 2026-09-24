@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -46,6 +48,7 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
 
 @Composable fun DebugChat(connection:JSONObject,back:()->Unit,play:(ByteArray)->Unit,prompts:JSONObject?=null,promptKind:String="daily",title:String="调试",tabs:(@Composable ()->Unit)?=null,online:Boolean?=null) {
     val api=remember(connection){Api(connection)};val scope=rememberCoroutineScope();val context=LocalContext.current
+    val focus=LocalFocusManager.current;val keyboard=LocalSoftwareKeyboardController.current
     var session by remember{mutableStateOf(UUID.randomUUID().toString())};var text by remember{mutableStateOf("")}
     var messages by remember{mutableStateOf(listOf<JSONObject>())};var busy by remember{mutableStateOf(false)};var notice by remember{mutableStateOf("")}
     var autoPlay by remember{mutableStateOf(true)};var recording by remember{mutableStateOf(false)};var history by remember{mutableStateOf(false)}
@@ -75,7 +78,7 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
     fun record(){if(ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startRecording() else permission.launch(Manifest.permission.RECORD_AUDIO)}
     LaunchedEffect(messages.size,busy,scroll.maxValue){scroll.animateScrollTo(scroll.maxValue)}
     Page(if(prompts==null)title else "提示词草稿试聊",notice,busy,onBack={stop();back()},header=tabs,scroll=scroll,bottom={
-        Surface(color=MaterialTheme.colorScheme.background,shadowElevation=0.dp){Column(Modifier.padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Surface(color=MaterialTheme.colorScheme.background,shadowElevation=0.dp){Column(Modifier.padding(start=20.dp,end=20.dp,top=8.dp,bottom=0.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
             if(recording){
                 Text("正在录音…",fontWeight=FontWeight.Medium)
@@ -83,16 +86,16 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
                 FullAction("结束录音"){keep.set(false)}
                 TextButton(onClick={stop();voiceDraft=null;notice="已取消录音"}){Text("取消")}
             }else{
+                Row(verticalAlignment=Alignment.CenterVertically){Checkbox(autoPlay,{autoPlay=it});Text("自动播放新回复",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);if(busy)TextButton(onClick={stop();notice="已取消本次操作"}){Text("取消")}}
                 if(voiceDraft!=null){Text("语音待发送 · 可编辑识别文字",fontSize=12.sp);Row{TextButton(onClick={voiceDraft?.let(play)},enabled=!busy){Text("播放语音")};TextButton(onClick={voiceDraft=null;text="";record()},enabled=!busy){Text("重新录音")};TextButton(onClick={voiceDraft=null;text=""},enabled=!busy){Text("取消发送")}}}
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    IconButton(onClick={voiceMode=!voiceMode},enabled=!busy,modifier=Modifier.semantics{contentDescription=if(voiceMode)"切换文字输入" else "切换语音输入"}){UiIcon(if(voiceMode)"book" else "mic")}
+                    IconButton(onClick={focus.clearFocus();keyboard?.hide();voiceMode=!voiceMode},enabled=!busy,modifier=Modifier.semantics{contentDescription=if(voiceMode)"切换文字输入" else "切换语音输入"}){UiIcon(if(voiceMode)"book" else "mic")}
                     if(voiceMode&&voiceDraft==null){OutlinedButton(onClick={record()},enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=48.dp),shape=RoundedCornerShape(13.dp)){UiIcon("mic");Spacer(Modifier.width(8.dp));Text("点击录音")}}
                     else{
                         OutlinedTextField(text,{text=it.take(1000)},placeholder={Text("输入消息…")},modifier=Modifier.weight(1f).semantics{contentDescription="发送文字或语音转写"},maxLines=4,enabled=!busy,shape=RoundedCornerShape(13.dp))
                         FilledIconButton(onClick={send()},enabled=!busy&&text.isNotBlank(),modifier=Modifier.semantics{contentDescription="发送"}){UiIcon("send",color=MaterialTheme.colorScheme.onPrimary)}
                     }
                 }
-                Row(verticalAlignment=Alignment.CenterVertically){Checkbox(autoPlay,{autoPlay=it});Text("自动播放新回复",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);if(busy)TextButton(onClick={stop();notice="已取消本次操作"}){Text("取消")}}
             }
         }}
     }){

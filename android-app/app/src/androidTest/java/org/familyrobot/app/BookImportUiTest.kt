@@ -57,38 +57,21 @@ class BookImportUiTest {
             }
         }
         var rid=""
+        fun fresh(){if(android.os.Build.VERSION.SDK_INT>=33)instrumentation.uiAutomation.clearCache()}
         fun waitFor(label:String,condition:()->Boolean) {
             val until=SystemClock.elapsedRealtime()+45000
-            while(!condition() && SystemClock.elapsedRealtime()<until)Thread.sleep(200)
+            while(SystemClock.elapsedRealtime()<until){fresh();if(condition())return;Thread.sleep(200)}
+            fresh()
             assertTrue(label,condition())
         }
-        fun scroll(backward:Boolean):Boolean {
-            fun locate(node:android.view.accessibility.AccessibilityNodeInfo):android.view.accessibility.AccessibilityNodeInfo? {
-                if(node.isScrollable && node.packageName==context.packageName)return node
-                for(i in 0 until node.childCount)node.getChild(i)?.let { child -> locate(child)?.let { return it } }
-                return null
-            }
-            val node=instrumentation.uiAutomation.rootInActiveWindow?.let { locate(it) } ?: return false
-            val moved=node.performAction(if(backward)android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-            var prior="";var stable=0
-            for(attempt in 0..24) {
-                Thread.sleep(120)
-                val visible=try { device.findObjects(By.pkg(context.packageName).text(java.util.regex.Pattern.compile(".+"))).joinToString { it.text+":"+it.visibleBounds.toShortString() } }
-                    catch(_:StaleObjectException) { prior="";stable=0;continue }
-                stable=if(visible.isNotEmpty() && visible==prior)stable+1 else 0;prior=visible
-                if(stable>=3)break
-            }
-            return moved
-        }
         fun find(text:String):UiObject2 {
-            device.waitForIdle()
-            (device.findObject(By.text(text)) ?: device.findObject(By.desc(text)))?.let { return it }
-            device.wait(Until.hasObject(By.clazz("android.widget.EditText")),5000)
-            for(i in 0..20) { if(device.hasObject(By.text("录入图书")) || device.hasObject(By.text("家长管理")))break;if(!scroll(true))break }
-            for(i in 0..28) {
-                (device.findObject(By.text(text)) ?: device.findObject(By.desc(text)))?.let { return it }
-                if(!scroll(false)) { Thread.sleep(300);(device.findObject(By.text(text)) ?: device.findObject(By.desc(text)))?.let { return it };break }
-            }
+            fun match():UiObject2?{fresh();return device.findObject(By.text(text))?:device.findObject(By.desc(text))}
+            repeat(12){match()?.let{return it};Thread.sleep(100)}
+            val scroll=UiScrollable(UiSelector().scrollable(true)).setAsVerticalList().setMaxSearchSwipes(20)
+            runCatching{scroll.scrollIntoView(UiSelector().text(text))}
+            match()?.let{return it}
+            runCatching{scroll.scrollIntoView(UiSelector().description(text))}
+            match()?.let{return it}
             device.dumpWindowHierarchy(File(context.filesDir,"book-import-failure.xml"))
             device.takeScreenshot(File(context.filesDir,"book-import-failure.png"))
             error("界面按钮/字段：$text")
@@ -102,8 +85,8 @@ class BookImportUiTest {
             context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
             assertTrue(device.wait(Until.hasObject(By.text("家长管理")),10000))
             find("资源库").click();find("原创图书录入界面测试").click();find("编辑工作草稿").click()
-            assertTrue(device.wait(Until.hasObject(By.text("录入图书")),10000));find("书目信息与来源").click();find("出版社")
-            find("连续拍摄书页").click()
+            assertTrue(device.wait(Until.hasObject(By.text("录入图书")),10000))
+            find("录入正文").click();find("连续拍摄书页").click()
             assertTrue(device.wait(Until.hasObject(By.text("已拍摄 1 页")),10000));find("继续拍摄").click()
             assertTrue(device.wait(Until.hasObject(By.text("已拍摄 2 页")),10000));find("导入已拍书页").click()
             waitFor("两张相机夹具按序OCR") { book().getJSONObject("draft").getJSONArray("pages").length()==3 }
@@ -118,7 +101,7 @@ class BookImportUiTest {
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertTrue(pages.getJSONObject(3).getString("text").contains("Picker page 1"));assertTrue(pages.getJSONObject(4).getString("text").contains("Picker page 2"))
             assertEquals(1,pickerCount.get());record("picker-fixture-two-pages")
-            find("2 校对").click();find("录入位置 2 · 无印刷页码").click();find("重新识别本页").click()
+            find("2 校对").click();find("录入位置 2 · 无印刷页码").click();find("重新识别与替换").click();find("重新识别本页").click()
             waitFor("单页重识别完成") { device.hasObject(By.textContains("本页识别：needs_review")) }
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertEquals(5,pages.length());assertTrue(pages.getJSONObject(0).getBoolean("reviewed"))

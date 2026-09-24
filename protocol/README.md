@@ -50,3 +50,13 @@ HTTPS JSON API，统一 `/v1`。完整字段由服务端 Pydantic 与 `/openapi.
 - `GET/DELETE /records?kind=companion|debug`、`DELETE /records/{id}` 和 `POST /records/{id}/speech`：陪伴记录仅家长可访问，调试记录仅原设备可访问。`history.enabled` 默认 false，`history.days` 为 7/30/90。过期和删除后不再提供朗读，回答音频按已保存文本/声音重新合成，原始儿童音频不保存。
 - 心跳新增 playback（状态、资源/版本、标题、段落、总段数、毫秒位置）、wakeName/wakeVersion；控制 ACK 不等于实际播放。Voice.quality 为 standard/high，前者输出16kHz，后者保留原采样率。两档不代表两种模型。
 - 主题为手机本地浅色/深色偏好，不属于共享服务配置。新 APK 与服务需配套更新。
+
+### IP 与端口首次登记
+
+家庭服务采用“可访问即可登记”的首次连接方式。手机从 `/health` 的 `addressSetup` 与 `automaticSetup` 判断支持情况；输入 IP 和端口后，自动调用 `POST /v1/setup/requests` 与 `POST /v1/setup/requests/{id}/complete` 登记机器人，无需电脑批准、确认码或连接文件。
+
+首次连接信任用户填写地址对应的服务，并保存实际 TLS 证书指纹及服务身份。后续通信继续进行固定证书与服务身份校验，家庭资源接口仍要求设备凭据，家长身份仍须机器人扫码配对并确认。首次自动登记并不跳过后续接口的角色权限。
+
+登记请求 300 秒有效，同一凭据可幂等重试；错误请求凭据、过期请求和完成后的令牌变更均拒绝。
+
+资源发布的 `auditioned` 仅记录可选试听确认，不作为发布门槛。所有页面仍需完成校对，空白页需显式跳过，并明确完整/节选范围；修改内容或声音会清除旧试听记录。

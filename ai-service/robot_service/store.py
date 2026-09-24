@@ -25,6 +25,7 @@ def dumps(value):
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS setup_requests(id TEXT PRIMARY KEY, name TEXT NOT NULL, claim_hash TEXT UNIQUE NOT NULL, code TEXT NOT NULL, expires REAL NOT NULL, state TEXT NOT NULL, token_hash TEXT, device_id TEXT);
 CREATE TABLE IF NOT EXISTS prompt_versions(robot_id TEXT NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY(robot_id,version));
 CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, robot_id TEXT NOT NULL, owner TEXT NOT NULL, kind TEXT NOT NULL, session_id TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, voice TEXT NOT NULL, created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);

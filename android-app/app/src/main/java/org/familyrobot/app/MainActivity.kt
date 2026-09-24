@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -41,6 +42,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class MainActivity:ComponentActivity() {
     lateinit var vault:Vault
@@ -49,10 +52,12 @@ class MainActivity:ComponentActivity() {
     private var robotManagement=false
     private var preview:MediaPlayer?=null
     private var themeMode by mutableStateOf("dark")
-    fun stopPreview(){preview?.release();preview=null;File(cacheDir,"preview.audio").delete()}
+    private var bookPreviewJob:Job?=null
+    private var bookPreviewApi:Api?=null
+    fun stopPreview(){bookPreviewApi?.cancel();bookPreviewApi=null;bookPreviewJob?.cancel();bookPreviewJob=null;preview?.release();preview=null;File(cacheDir,"preview.audio").delete()}
     private fun chooseTheme(value:String){themeMode=if(value=="light")"light" else "dark";getSharedPreferences("appearance",MODE_PRIVATE).edit().putString("theme",themeMode).apply()}
     override fun onCreate(savedInstanceState:Bundle?) {
-        super.onCreate(savedInstanceState);vault=Vault(this)
+        super.onCreate(savedInstanceState);WindowCompat.setDecorFitsSystemWindows(window,false);vault=Vault(this)
         themeMode=getSharedPreferences("appearance",MODE_PRIVATE).getString("theme","dark") ?: "dark"
         setContent { RobotTheme(themeMode) { SideEffect { WindowCompat.getInsetsController(window,window.decorView).apply { isAppearanceLightStatusBars=themeMode=="light";isAppearanceLightNavigationBars=themeMode=="light" };@Suppress("DEPRECATION") run { window.statusBarColor=if(themeMode=="light")0xFFF5F7F5.toInt() else 0xFF101F23.toInt();window.navigationBarColor=window.statusBarColor } };Root() } }
     }
@@ -63,6 +68,19 @@ class MainActivity:ComponentActivity() {
         if(!foreground)return
         stopPreview();val file=File(cacheDir,"preview.audio");file.writeBytes(data)
         preview=MediaPlayer().apply { setDataSource(file.absolutePath);setOnPreparedListener { it.setVolume(volume.coerceIn(0f,1f),volume.coerceIn(0f,1f));it.start() };setOnCompletionListener { it.release();preview=null;file.delete() };prepareAsync() }
+    }
+    private suspend fun playBookAudio(bytes:ByteArray)=suspendCancellableCoroutine<Unit>{ continuation->
+        if(!foreground){continuation.cancel();return@suspendCancellableCoroutine}
+        val file=File.createTempFile("book-preview-",".audio",cacheDir);file.writeBytes(bytes)
+        val player=MediaPlayer();preview=player
+        fun release(){if(preview===player)preview=null;runCatching{player.release()};file.delete()}
+        continuation.invokeOnCancellation{release()}
+        try{player.setDataSource(file.absolutePath)
+            player.setOnPreparedListener{if(continuation.isActive)it.start()}
+            player.setOnCompletionListener{release();if(continuation.isActive)continuation.resume(Unit)}
+            player.setOnErrorListener{_,_,_->release();if(continuation.isActive)continuation.resumeWithException(IllegalStateException("试听播放失败，请重试"));true}
+            player.prepareAsync()
+        }catch(e:Exception){release();if(continuation.isActive)continuation.resumeWithException(e)}
     }
     @Composable private fun Root() {
         var mode by remember { mutableStateOf(vault.get("identity")?.optString("mode") ?: "setup") }
@@ -100,85 +118,7 @@ class MainActivity:ComponentActivity() {
 
         } },confirmButton={ TextButton(onClick={ if(vault.verifyPin(pin)) { unlock=false;manage=true;pin="";pinError="" } else pinError="PIN 不正确或仍在锁定时间内" }) { Text("进入") } },dismissButton={ TextButton(onClick={ unlock=false;pin="";runtime?.resumeForeground() }) { Text("取消") } })
     }
-    @Composable private fun Setup(done:(String)->Unit) {
-        val scope=rememberCoroutineScope();var material by remember { mutableStateOf("") };var role by remember { mutableStateOf("robot") }
-        var pin by remember { mutableStateOf("") };var message by remember { mutableStateOf("") };var busy by remember { mutableStateOf(false) }
-        var repeatPin by remember { mutableStateOf("") };var setupStep by remember{mutableIntStateOf(0)}
-        val firstPermissions=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){done("robot")}
-        var pending by remember { mutableStateOf<JSONObject?>(null) };var activeConnection by remember { mutableStateOf<JSONObject?>(null) }
-        var scanning by remember { mutableStateOf(false) }
-        val import=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null)runCatching { contentResolver.openInputStream(uri)!!.use { material=readLimited(it,16384).decodeToString() } }.onFailure { message="连接材料读取失败" } }
-        val cameraPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if(granted)scanning=true
-            else message="未获得相机权限。可在系统设置中允许相机权限，或直接导入连接文件"
-        }
-        if(scanning)PairingScanner(this,onDismiss={ scanning=false }) { text ->
-            material=text;scanning=false
-            if(parseConnectionMaterial(text).optString("purpose")=="pair")role="parent"
-            message="已识别连接二维码，请点击“验证并连接”"
-        }
-        BackHandler(enabled=setupStep>0&&!busy&&pending==null){setupStep=0;message=""}
-        if(setupStep==0){
-            Page("首次设置",message,false){
-                Text("1 选择用途     2 连接与验证     3 完成设置",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                EmptyState("这台手机用来做什么？","机器人手机负责陪伴；家长手机管理内容和设置。")
-                FullAction("这是机器人手机"){role="robot";setupStep=1}
-                FullAction("这是家长手机",secondary=true){role="parent";setupStep=1}
-                if(vault.get("parent")!=null)FullAction("返回已绑定家长端",secondary=true){done("parent")}
-                if(vault.get("robot")!=null)FullAction("返回已登记机器人",secondary=true){done("robot")}
-            };return
-        }
-        if(setupStep==2 && role=="robot"){
-            Page("完成设置","",false){
-                Text("1 选择用途     2 连接与验证     3 完成设置",fontSize=12.sp)
-                EmptyState("机器人已连接","麦克风用于本地唤醒和会话，相机只在允许的会话中开启。")
-                FullAction("授予麦克风和相机权限"){firstPermissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO,Manifest.permission.CAMERA))}
-                FullAction("稍后授权并进入待机",secondary=true){done("robot")}
-            };return
-        }
-        Page(if(role=="parent")"绑定家长手机" else "连接家庭机器人",message,busy,onBack=if(!busy&&pending==null)({setupStep=0}) else null) {
-            Text("1 选择用途     2 连接与验证     3 完成设置",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            if(pending==null){
-            Text("家长端管理资源和使用安排；机器人端显示表情并陪伴孩子。两种身份使用独立凭据。")
-
-            Text(if(role=="robot")"先连接机器人：请从家庭电脑获取刚生成的 connection.json，导入后设置管理 PIN。" else "在机器人管理页点击“生成家长配对材料”，再用这台家长手机扫描显示的二维码。",fontSize=13.sp)
-            Row { Action("扫描二维码",enabled=pending==null && !busy) {
-                message=""
-                if(ContextCompat.checkSelfPermission(this@MainActivity,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)scanning=true
-                else cameraPermission.launch(Manifest.permission.CAMERA)
-            };Action("导入连接文件",enabled=pending==null && !busy) { import.launch(arrayOf("application/json","text/plain","application/octet-stream")) } }
-            DetailDisclosure("连接材料 JSON（可粘贴）"){OutlinedTextField(material,{material=it},label={Text("连接材料 JSON")},modifier=Modifier.fillMaxWidth(),minLines=4,maxLines=7)}
-            if(material.isNotBlank())Text("已读取连接材料，等待验证",color=MaterialTheme.colorScheme.primary)
-            if(role=="robot"){OutlinedTextField(pin,{ pin=it },label={ Text("设置6—12位管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation());OutlinedTextField(repeatPin,{ repeatPin=it },label={ Text("再次输入管理 PIN") },visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation());Text("麦克风用于唤醒和对话；相机只在允许的会话内使用。连接后申请权限，可稍后在管理页补充。",fontSize=12.sp)}
-            Text("连接文件两分钟有效，过期请重新生成。手机与家庭电脑须在同一局域网。家长身份不能使用电脑生成的机器人连接文件。",fontSize=13.sp)
-            }else EmptyState("等待机器人本机确认","请到机器人管理页核对并确认这台家长手机。")
-            FullAction(if(pending==null)"验证并连接" else "检查机器人确认结果",enabled=!busy && (pending!=null || material.isNotBlank())) {
-                scope.launch {
-                    busy=true
-                    try {
-                        if(pending==null) {
-                            val c=parseConnectionMaterial(material)
-                            val api=Api(c)
-                            if(role=="robot")require(pin.matches(Regex("[0-9]{6,12}")) && pin==repeatPin) { "请设置6—12位数字 PIN，并确保两次输入一致" }
-                            val result=withContext(Dispatchers.IO) { api.checkIdentity();if(role=="robot" && c.optString("purpose")=="recover")api.json("/v1/recover","POST",JSONObject().put("invite",c.getString("invite"))) else api.json(if(role=="robot")"/v1/register" else "/v1/pairing/claim","POST",JSONObject().put("invite",c.getString("invite")).put("name",if(role=="robot")"家庭小伙伴" else "家长手机")) }
-                            if(role=="robot") {
-                                c.put("token",result.getString("token")).put("deviceId",result.getString("deviceId")).remove("invite")
-                                vault.save("robot",c);vault.setPin(pin);setupStep=2
-                            } else { c.remove("invite");c.put("token",UUID.randomUUID().toString()+UUID.randomUUID());pending=result;activeConnection=c;message="请在机器人管理页确认配对，然后点击检查结果" }
-                        } else {
-                            val c=activeConnection!!;val p=pending!!
-                            val result=withContext(Dispatchers.IO) { Api(c).json("/v1/pairing/${p.getString("pairId")}/complete","POST",JSONObject().put("claim",p.getString("claim")).put("token",c.getString("token"))) }
-                            if(result.optString("state")=="completed") { c.put("deviceId",result.getString("deviceId")).put("robotId",result.getString("robotId"));vault.save("parent",c);done("parent") }
-                            else message="配对状态：${result.optString("state")}"
-                        }
-                    } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false }
-                }
-            }
-            if(pending!=null)FullAction("取消配对",secondary=true,enabled=!busy){pending=null;activeConnection=null;material="";message="已取消本机配对，请重新生成材料后再试"}
-            if(vault.get("parent")!=null)Action("返回已绑定家长端") { done("parent") }
-            if(vault.get("robot")!=null)Action("返回已登记机器人") { done("robot") }
-        }
-    }
+    @Composable private fun Setup(done:(String)->Unit) { SetupScreen(this,vault,done) }
     @Composable private fun RobotManagement(robot:RobotRuntime,close:()->Unit,switch:(String)->Unit) {
         val scope=rememberCoroutineScope();val api=remember { Api(robot.connection) }
         var message by remember { mutableStateOf("") };var pairing by remember { mutableStateOf("") };var requests by remember { mutableStateOf(JSONArray()) }
@@ -525,13 +465,61 @@ class MainActivity:ComponentActivity() {
         var purpose by rememberSaveable { mutableStateOf("pages") };var targetPage by rememberSaveable { mutableStateOf("") };var capturePath by rememberSaveable { mutableStateOf("") }
         var importing by remember { mutableStateOf(false) };var cancelImport by remember { mutableStateOf(false) }
         var captureBatch by rememberSaveable { mutableStateOf(false) };var capturedPages by rememberSaveable { mutableStateOf(listOf<String>()) }
-        var pageToDelete by remember{mutableStateOf<String?>(null)};var lastPreviewedDraft by remember{mutableStateOf("")};var auditionSnapshot by remember{mutableStateOf("")};var auditionConfirmed by remember{mutableStateOf(false)}
+        var pageToDelete by remember{mutableStateOf<String?>(null)};var lastPreviewedDraft by remember{mutableStateOf("")};var auditionConfirmed by remember{mutableStateOf(false)};var scopeConfirmed by remember{mutableStateOf(false)};var auditionPage by remember{mutableIntStateOf(0)};var previewing by remember{mutableStateOf(false)}
         var stage by rememberSaveable{mutableIntStateOf(0)};var savedDraft by remember{mutableStateOf("")};var leaveEditor by remember{mutableStateOf(false)}
+        var editorRoute by rememberSaveable{mutableStateOf("main")};var editorHistory by rememberSaveable{mutableStateOf(listOf<String>())}
+        fun invalidateAudition(){auditionConfirmed=false;scopeConfirmed=false;lastPreviewedDraft="";item?.getJSONObject("draft")?.put("auditioned",false)}
+        fun draftChanged(){stopPreview();invalidateAudition();item=item?.let{JSONObject(it.toString())}}
+        fun openEditor(route:String){stopPreview();if(route!=editorRoute){editorHistory=editorHistory+editorRoute;editorRoute=route};message=""}
+        fun showReview(){stopPreview();stage=1;editingPage=false;editorRoute="main";editorHistory=emptyList();message=""}
         fun exitEditor(){stopPreview();if(item?.getJSONObject("draft")?.toString()!=savedDraft && item!=null)leaveEditor=true else back()}
-        BackHandler{if(!busy)exitEditor()}
+        fun editorBack(){
+            stopPreview();message=""
+            if(editorRoute!="main"){editorRoute=editorHistory.lastOrNull() ?: "main";editorHistory=editorHistory.dropLast(1)}
+            else if(editingPage){editingPage=false;source=null}
+            else exitEditor()
+        }
         fun run(action:suspend ()->Unit) { scope.launch { busy=true;try { action() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "操作失败" } finally { busy=false } } }
         suspend fun refresh() { val result=withContext(Dispatchers.IO) { Triple(api.json("/v1/resources/$rid"),api.array("/v1/jobs"),api.json("/v1/models")) };item=result.first;savedDraft=item!!.getJSONObject("draft").toString();jobs=result.second;voiceModels=result.third;source=null }
         suspend fun save() { val current=item ?: return;item=withContext(Dispatchers.IO) { api.json("/v1/resources/$rid","PUT",JSONObject().put("expectedVersion",current.getInt("draft_version")).put("draft",current.getJSONObject("draft"))) };savedDraft=item!!.getJSONObject("draft").toString() }
+        fun confirmPage(){run{
+            val page=item!!.getJSONObject("draft").getJSONArray("pages").getJSONObject(pageIndex)
+            require(bookPageCanConfirm(page)){"请补齐正文，或将空白页标记为不朗读"}
+            stopPreview();page.put("reviewed",true);invalidateAudition();save()
+            val pages=item!!.getJSONObject("draft").getJSONArray("pages")
+            val next=((pageIndex+1 until pages.length())+(0 until pageIndex)).firstOrNull{!pages.getJSONObject(it).optBoolean("reviewed")}
+            if(next!=null){pageIndex=next;source=null;editingPage=true;message="本页已保存并确认，继续校对下一页"}
+            else{editingPage=false;stage=2;message="全部页面已校对，确认收录范围后即可发布；试听可选"}
+        }}
+        fun audition(index:Int,forPublish:Boolean){
+            if(previewing||busy)return
+            val current=item?:return;val draft=current.getJSONObject("draft")
+            val copy=JSONObject(draft.toString());val snapshot=bookAuditionKey(copy)
+            val originalAudio=forPublish&&copy.optString("audioAsset").isNotBlank()
+            val chunks=if(originalAudio)emptyList()else bookSpokenChunks(copy.getJSONArray("pages").getJSONObject(index))
+            if(!originalAudio&&chunks.isEmpty()){message="本页没有可试听的正文，或已设为不朗读";return}
+            stopPreview();auditionConfirmed=false;lastPreviewedDraft="";draft.put("auditioned",false);previewing=true
+            val audioApi=Api(api.connection);bookPreviewApi=audioApi
+            bookPreviewJob=scope.launch{
+                try{
+                    // 先保存试听对应的版本，再逐段生成和播放；未播放完不授予确认资格。
+                    save()
+                    if(originalAudio){message="正在试听原录音";val data=withContext(Dispatchers.IO){audioApi.raw("/v1/assets/${copy.getString("audioAsset")}")};playBookAudio(data)}
+                    else for((part,text) in chunks.withIndex()){
+                        message="正在试听第 ${index+1} 页 · ${part+1}/${chunks.size} 段"
+                        val data=withContext(Dispatchers.IO){audioApi.raw("/v1/speech/preview","POST",JSONObject().put("text",text).put("voice",copy.getJSONObject("voice")).put("story",true).toBody())}
+                        ensureActive();playBookAudio(data)
+                    }
+                    if(bookAuditionKey(item!!.getJSONObject("draft"))==snapshot){
+                        if(forPublish)lastPreviewedDraft=snapshot
+                        message=if(forPublish)"试听完成，可重播或选择其他页。" else "本页试听完成；确认正文和读音后，点击保存并确认本页。"
+                    }
+                }catch(e:CancellationException){message="试听已停止";throw e}
+                catch(e:Exception){message="试听失败：${e.message}"}
+                finally{previewing=false;bookPreviewJob=null;if(bookPreviewApi===audioApi)bookPreviewApi=null}
+            }
+        }
+        DisposableEffect(Unit){onDispose{stopPreview()}}
         suspend fun awaitJob(jobId:String):JSONObject {
             try {
                 return withTimeout(210_000) {
@@ -580,7 +568,7 @@ class MainActivity:ComponentActivity() {
         } }
         LaunchedEffect(rid) { busy=true;try { refresh() } catch(e:Exception) { message=e.message ?: "资源读取失败" } finally { busy=false } }
         BackHandler(enabled=busy) { message="正在处理素材，请先停止导入或等待处理完成。" }
-        BackHandler(enabled=!busy) { exitEditor() }
+        BackHandler(enabled=!busy) { editorBack() }
         val import=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null)importUris(listOf(uri),purpose,targetPage) }
         val multiple=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> importUris(uris,"pages") }
         val capture=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -603,98 +591,175 @@ class MainActivity:ComponentActivity() {
             if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)launchCapture()
             else cameraPermission.launch(Manifest.permission.CAMERA)
         }
-        Page(if(item?.optString("kind")=="book")"录入图书" else "编辑资源草稿",message,busy,onBack={if(!busy)exitEditor()}) {
-            EditorSteps(stage,{stage=it;editingPage=false},!busy)
-            if(importing)Action("停止后续导入",enabled=!cancelImport) { cancelImport=true;message="正在停止导入，已处理的页面会保留。" }
+        fun addTextPage(){
+            val current=item ?: return;val pages=current.getJSONObject("draft").getJSONArray("pages")
+            pages.put(JSONObject().put("id",UUID.randomUUID().toString()).put("text","").put("reviewed",false))
+            pageIndex=pages.length()-1;stage=1;editingPage=true;editorRoute="main";editorHistory=emptyList();item=JSONObject(current.toString());message=""
+        }
+        val editorTitle=when(editorRoute){"cover"->"录入封面";"import"->"录入正文";"audio"->"导入已有音频";"jobs"->"本书导入任务";else->if(stage==1)if(editingPage)"校对本页" else "逐页校对" else if(stage==2)"试听与发布" else if(item?.optString("kind")=="book")"录入图书" else "编辑资源草稿"}
+        val editorScroll=remember(editorRoute,stage,editingPage,pageIndex){ScrollState(0)}
+        val currentDraft=item?.getJSONObject("draft")
+        val publishReady=currentDraft?.let{bookReadyToPublish(item!!.getString("kind"),it)&&it.getJSONObject("voice").optDouble("speed",1.0) in 0.7..1.3}==true
+        val auditionValid=currentDraft?.let{bookAuditionKey(it)==lastPreviewedDraft}==true
+        val pageMessage=if(editorRoute=="main"&&(stage==2||stage==1&&editingPage)&&message.contains("试听"))"" else message
+        Page(editorTitle,pageMessage,busy,onBack={if(!busy)editorBack()},scroll=editorScroll,
+            header={EditorSteps(stage,{stopPreview();stage=it;editingPage=false;editorRoute="main";editorHistory=emptyList();message=""},!busy&&!previewing)},
+            bottom={if(editorRoute=="main"){
+                when(stage){
+                    0->BookEntryActions(item!=null&&!busy&&!previewing,save={run{save();message="草稿已保存"}},next={showReview()})
+                    1->if(editingPage)BookFooter("保存并确认本页","保存，稍后校对",!busy&&!previewing,
+                        primaryEnabled=!busy&&!previewing&&currentDraft?.getJSONArray("pages")?.optJSONObject(pageIndex)?.let{bookPageCanConfirm(it)}==true,
+                        onPrimary={confirmPage()},onSecondary={run{save();editingPage=false;message="草稿已保存，可稍后继续校对"}})
+                    else BookFooter("试听与发布","保存草稿",!busy&&!previewing,onPrimary={stage=2},onSecondary={run{save();message="草稿已保存"}})
+                    2->BookFooter("发布给机器人","保存草稿",!busy&&!previewing,
+                        primaryEnabled=!busy&&!previewing&&publishReady&&scopeConfirmed,
+                        onPrimary={run{
+                            val draft=item!!.getJSONObject("draft")
+                            draft.put("auditioned",auditionValid&&auditionConfirmed)
+                            require(bookReadyToPublish(item!!.getString("kind"),draft)){"请完成校对与收录范围确认"}
+                            save();withContext(Dispatchers.IO){api.json("/v1/resources/$rid/publish","POST",JSONObject().put("expectedVersion",item!!.getInt("draft_version")).put("requestId",UUID.randomUUID().toString()))}
+                            Toast.makeText(this@MainActivity,"发布成功",Toast.LENGTH_SHORT).show();back()
+                        }},onSecondary={run{save();message="草稿已保存"}})
+                }
+            }}) {
+            if(importing)FullAction("停止后续导入",secondary=true,enabled=!cancelImport) { cancelImport=true;message="正在停止导入，已处理的页面会保留。" }
             val current=item
             if(current!=null && !busy) {
                 val draft=current.getJSONObject("draft");val pages=draft.getJSONArray("pages")
-                if(stage==0){
-                JsonField(draft,"title","名称");JsonField(draft,"edition","版本 / 年级");Dropdown(draft,"language","语言",listOf("zh" to "中文","en" to "英文"))
-                DetailDisclosure("书目信息与来源"){StringListField(draft,"aliases","别名（每行一个）");StringListField(draft,"tags","标签（每行一个）");NumberField(draft,"minAge","最小适龄");NumberField(draft,"maxAge","最大适龄");JsonField(draft,"isbn","ISBN");JsonField(draft,"author","作者");JsonField(draft,"publisher","出版社");JsonField(draft,"source","来源");Dropdown(draft,"englishLevel","适合英语阶段",listOf("beginner" to "零基础","basic" to "基础","intermediate" to "进阶"))}
-                SectionHeading("素材与正文")
-                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) { for((key,label) in listOf("cover" to "封面","pages" to "书页 / PDF / 文本","audio" to "音频"))Action("导入$label",enabled=!busy) { purpose=key;targetPage="";import.launch(arrayOf("*/*")) } }
-                Row { Action("拍摄封面") { takePhoto("cover") };Action("拍摄书页") { takePhoto("pages") } }
-                Action("连续拍摄书页") { capturedPages=emptyList();takePhoto("pages",batch=true) }
-                Action("批量选择书页图片") { multiple.launch(arrayOf("image/*")) }
-                Text("图片按选择器返回的顺序导入，请在下方核对并调整。OCR只生成待校对草稿；印刷页码需确认后填写。",fontSize=12.sp)
-                Action("刷新导入结果",enabled=!busy) { run { refresh() } }
-                for(i in 0 until jobs.length()) { val task=jobs.getJSONObject(i)
-                    if(task.getString("resource_id")==rid) {
-                        val state=task.getString("state")
-                        Text("导入任务：${resourceStatus(state)}"+(if(task.isNull("error"))"" else " · "+task.getString("error")))
-                        Row {
-                            if(state in setOf("failed","interrupted","stale","cancelled"))Action("重试导入",enabled=!busy) { run { save();withContext(Dispatchers.IO) { api.json("/v1/jobs/${task.getString("id")}/retry","POST",JSONObject()) };refresh() } }
-                            if(state in setOf("queued","processing"))Action("取消导入",enabled=!busy) { run { withContext(Dispatchers.IO) { api.json("/v1/jobs/${task.getString("id")}/cancel","POST",JSONObject()) };refresh() } }
+                if(editorRoute=="cover"){
+                    Text(if(draft.optString("coverAsset").isBlank())"为图书添加封面，方便小伙伴识别和查找。" else "已录入封面，可以拍摄或选择图片替换。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    DesignGroup{
+                        DesignRow("拍摄封面","对准整张封面，保持文字清晰","camera"){takePhoto("cover")}
+                        DesignRow("从相册选择封面","选择一张已有图片","image",false){purpose="cover";targetPage="";import.launch(arrayOf("image/*"))}
+                    }
+                    Text("封面只用于找书，不会作为正文朗读。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }else if(editorRoute=="import"){
+                    Text("选择一种方式录入正文",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    DesignGroup{
+                        DesignRow("单页拍摄","拍摄一页后识别为待校对草稿","camera"){takePhoto("pages")}
+                        DesignRow("连续拍摄书页","按书页顺序拍摄，确认后统一导入","camera"){capturedPages=emptyList();takePhoto("pages",batch=true)}
+                        DesignRow("批量选择书页图片","从相册选择多张书页图片","image"){multiple.launch(arrayOf("image/*"))}
+                        DesignRow("导入 PDF / 文本","支持 PDF、TXT 和 Markdown","book"){purpose="pages";targetPage="";import.launch(arrayOf("application/pdf","text/plain","text/markdown","text/x-markdown"))}
+                        DesignRow("手工添加文字页","粘贴文字，或为无字绘本编写讲述稿","chat",false){addTextPage()}
+                    }
+                    Text("每批最多 300 个文件，单个文件不超过 32 MB。图片按选择器返回的顺序导入，请在校对页检查页序。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick={openEditor("jobs")}){Text("查看导入任务")}
+                }else if(editorRoute=="audio"){
+                    Text("导入已有故事录音或儿歌，播放时保留原声音色与情感。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    DesignGroup{DesignRow(if(draft.optString("audioAsset").isBlank())"选择音频文件" else "替换音频文件","MP3 / M4A / WAV · 单个文件最多 32 MB","music",false){purpose="audio";targetPage="";import.launch(arrayOf("audio/*"))}}
+                    if(draft.optString("audioAsset").isNotBlank())FullAction("试听已上传原音频",secondary=true){run{val audio=withContext(Dispatchers.IO){api.raw("/v1/assets/${draft.getString("audioAsset")}")};playPreview(audio)}}
+                    Text("导入后仍需在「试听与发布」中确认，不会自动发布或播放。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }else if(editorRoute=="jobs"){
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("本书导入进度",Modifier.weight(1f));TextButton(onClick={run{save();refresh()}}){Text("刷新导入结果")}}
+                    var count=0
+                    for(i in 0 until jobs.length()){val task=jobs.getJSONObject(i)
+                        if(task.getString("resource_id")==rid){
+                            count++;val state=task.getString("state")
+                            DesignGroup{Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                                Text("素材 $count · ${resourceStatus(state)}")
+                                if(!task.isNull("error"))Text(task.getString("error"),fontSize=12.sp,color=MaterialTheme.colorScheme.error)
+                                if(state in setOf("failed","interrupted","stale","cancelled"))TextButton(onClick={run{save();withContext(Dispatchers.IO){api.json("/v1/jobs/${task.getString("id")}/retry","POST",JSONObject())};refresh()}}){Text("重试导入")}
+                                if(state in setOf("queued","processing"))TextButton(onClick={run{withContext(Dispatchers.IO){api.json("/v1/jobs/${task.getString("id")}/cancel","POST",JSONObject())};refresh()}}){Text("取消导入")}
+                            }}
+                        }
+                    }
+                    if(count==0)EmptyState("还没有导入任务","拍摄书页或选择文件后，可在这里查看处理结果。")
+                    Text("OCR 只生成待校对草稿；已完成的页面会保留，失败项目可以单独重试。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    FullAction("查看已录入书页"){showReview()}
+                    FullAction("继续录入",secondary=true){editorRoute="import";editorHistory=listOf("main");message=""}
+                }else if(stage==0){
+                    val taskCount=(0 until jobs.length()).count{jobs.getJSONObject(it).getString("resource_id")==rid}
+                    BookEntryForm(current,taskCount,open={openEditor(it)},review={showReview()})
+                }
+                if(stage==1 && editorRoute=="main"){
+                    val reviewed=(0 until pages.length()).count{pages.getJSONObject(it).optBoolean("reviewed")}
+                    if(!editingPage){
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("$reviewed / ${pages.length()} 页已校对",Modifier.weight(1f));TextButton(onClick={stage=0;openEditor("import")}){Text("补页")}}
+                        val warnings=current.optJSONArray("pageOrderWarnings")?:JSONArray()
+                        for(i in 0 until warnings.length())Text(warnings.getString(i),color=MaterialTheme.colorScheme.error)
+                        Text("逐页检查正文和读音；可随时保存，稍后继续。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(pages.length()==0)EmptyState("还没有录入书页","先补页，或为无字绘本编写讲述稿。")
+                        else DesignGroup{for(i in 0 until pages.length()){val p=pages.getJSONObject(i);DesignRow("录入位置 ${i+1} · ${p.optString("label").ifBlank{"无印刷页码"}}","${if(p.optBoolean("reviewed"))"已校对" else "待校对"}${if(p.optBoolean("skip"))" · 不朗读" else ""} · ${p.optString("text").take(25)}",icon=if(p.optBoolean("reviewed"))"check" else "book",divider=i<pages.length()-1){stopPreview();pageIndex=i;source=null;editingPage=true}}}
+                    }else if(pages.length()>0){
+                        pageIndex=pageIndex.coerceIn(0,pages.length()-1);val page=pages.getJSONObject(pageIndex)
+                        fun changed(){page.put("reviewed",false);draftChanged()}
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("录入位置 ${pageIndex+1} / ${pages.length()} · ${if(page.optBoolean("reviewed"))"已校对" else "待校对"}",Modifier.weight(1f),fontSize=13.sp);TextButton(onClick={stopPreview();editingPage=false}){Text("书页列表")}}
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){TextButton(enabled=pageIndex>0&&!previewing,onClick={pageIndex--;source=null}){Text("上一页")};TextButton(enabled=pageIndex<pages.length()-1&&!previewing,onClick={pageIndex++;source=null}){Text("下一页")}}
+                        key(page.optString("id")){
+                            DetailDisclosure("源稿对照"){
+                                if(page.optString("sourceAsset").isBlank())Text("本页来自文本或手工录入，没有源图。",Modifier.padding(16.dp),fontSize=13.sp)
+                                else Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                                    FullAction("查看本页源图",secondary=true){run{source=withContext(Dispatchers.IO){val bytes=api.raw("/v1/assets/${page.getString("sourceAsset")}/page/${page.optInt("sourcePage")}?rotation=${page.optInt("sourceRotation")}");BitmapFactory.decodeByteArray(bytes,0,bytes.size)}}}
+                                    source?.let{Image(it.asImageBitmap(),"原稿对照",Modifier.fillMaxWidth().heightIn(max=480.dp))}
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                                Column(Modifier.weight(1f)){FormField("印刷页码（可空）",page.optString("label")){page.put("label",it);changed()}}
+                                Column(Modifier.weight(1f)){FormField("章节（可空）",page.optString("chapter")){page.put("chapter",it);changed()}}
+                            }
+                            FormField("准备朗读的正文",page.optString("text"),5){page.put("text",it);changed()}
+                            val names=mapOf("BLANK" to "未识别到正文，请核对是否空白页","DUPLICATE" to "与其他页正文相同，请检查是否重复","LOW_CONFIDENCE" to "部分文字识别置信度较低","OCR_FAILED" to "识别失败，可重试或重拍")
+                            val warnings=page.optJSONArray("qualityWarnings")?:JSONArray()
+                            for(i in 0 until warnings.length())Text(names[warnings.getString(i)]?:warnings.getString(i),color=MaterialTheme.colorScheme.error,fontSize=12.sp)
+                            BookCheck("本页不朗读",page.optBoolean("skip")){page.put("skip",it);changed()}
+                            Text("空白页、版权页保留页序，也需要确认。页眉、脚注是否朗读，请直接编辑正文。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            DetailDisclosure("发音纠正"){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){PronunciationEditor(page){changed()}}}
+                            if(draft.optString("audioAsset").isBlank())FullAction(if(previewing)"停止试听" else "试听本页",secondary=true,enabled=previewing||(!page.optBoolean("skip")&&page.optString("text").isNotBlank())){if(previewing)stopPreview()else audition(pageIndex,false)}
+                            else Text("当前使用原录音，无法按正文定位播放；请在发布页试听整段原录音。",fontSize=12.sp)
+                            if(message.contains("试听"))Text(message,fontSize=12.sp,color=MaterialTheme.colorScheme.primary)
+                            DetailDisclosure("重新识别与替换"){
+                                Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                                    if(page.optString("sourceAsset").isNotBlank())for((rotate,label)in listOf(false to "重新识别本页",true to "旋转90°并识别"))FullAction(label,secondary=true,enabled=!previewing){run{
+                                        save();val result=withContext(Dispatchers.IO){api.json("/v1/resources/$rid/pages/${page.getString("id")}/extract","POST",JSONObject().put("expectedVersion",item!!.getInt("draft_version")).put("rotation",if(rotate)(page.optInt("sourceRotation")+90)%360 else page.optInt("sourceRotation")))}
+                                        val task=awaitJob(result.getString("jobId"));refresh();invalidateAudition();message="本页识别：${task.getString("state")}；请重新校对，其他页面保留。"
+                                    }}
+                                    else Text("本页没有源图，可重新拍摄替换。",fontSize=12.sp)
+                                    FullAction("重拍替换本页",secondary=true,enabled=!previewing){takePhoto("pages",page.getString("id"))}
+                                    Text("仅替换本页；识别失败不会用空结果覆盖正文。",fontSize=12.sp)
+                                }
+                            }
+                            DetailDisclosure("页序与删除"){
+                                Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                                    for((delta,label)in listOf(-1 to "向前移动",1 to "向后移动"))FullAction(label,secondary=true,enabled=pageIndex+delta in 0 until pages.length()&&!previewing){val list=(0 until pages.length()).map{pages.getJSONObject(it)}.toMutableList();java.util.Collections.swap(list,pageIndex,pageIndex+delta);draft.put("pages",JSONArray(list));pageIndex+=delta;draftChanged()}
+                                    TextButton(onClick={stopPreview();pageToDelete=page.getString("id")}){Text("删除本页",color=MaterialTheme.colorScheme.error)}
+                                }
+                            }
                         }
                     }
                 }
-                Action("下一步：逐页校对"){stage=1}
-                }
-                if(stage==1){
-                Text("${pages.length()} 页 · 草稿版本 ${current.getInt("draft_version")} · ${resourceStatus(current.getString("status"))}")
-                val pageOrderWarnings=current.optJSONArray("pageOrderWarnings") ?: JSONArray()
-                for(i in 0 until pageOrderWarnings.length())Text(pageOrderWarnings.getString(i),color=MaterialTheme.colorScheme.error)
-                Text("页序提示根据已保存的明确印刷页码生成。修改后请保存刷新；无页码和复杂版式仍需逐页核对。",fontSize=12.sp)
-                if(!editingPage){
-                    if(pages.length()==0)EmptyState("还没有录入书页","录入书页，或为无字绘本编写讲述稿。")
-                    else DesignGroup{for(i in 0 until pages.length()){val p=pages.getJSONObject(i);DesignRow("录入位置 ${i+1} · ${p.optString("label").ifBlank{"无印刷页码"}}","${if(p.optBoolean("reviewed"))"已校对" else "待校对"} · ${p.optString("text").take(25)}",icon="book",divider=i<pages.length()-1){pageIndex=i;editingPage=true}}}
-                }
-                if(pages.length()>0 && editingPage) {
-                    TextButton(onClick={editingPage=false}){Text("返回书页列表")}
-                    pageIndex=pageIndex.coerceIn(0,pages.length()-1);val page=pages.getJSONObject(pageIndex)
-                    Row { Action("上一页",enabled=pageIndex>0) { pageIndex--;source=null };Text("${pageIndex+1}/${pages.length()}",Modifier.padding(12.dp));Action("下一页",enabled=pageIndex<pages.length()-1) { pageIndex++;source=null } }
-                    key(page) {
-                        JsonField(page,"label","印刷页码（原书没有可留空）");JsonField(page,"chapter","章节");JsonField(page,"text","校对原文",5)
-                        DetailDisclosure("发音纠正"){PronunciationEditor(page)}
-                        val warningNames=mapOf("BLANK" to "未识别到正文，请核对是否空白页", "DUPLICATE" to "与其他页正文完全相同，请检查重复上传", "LOW_CONFIDENCE" to "部分文字识别置信度较低", "OCR_FAILED" to "本页识别失败，可重试或重拍")
-                        val warnings=page.optJSONArray("qualityWarnings") ?: JSONArray()
-                        for(w in 0 until warnings.length())Text(warningNames[warnings.getString(w)] ?: warnings.getString(w),color=MaterialTheme.colorScheme.error)
-                        if(page.optString("extractionError").isNotBlank())Text("识别错误：${page.optString("extractionError")}")
-                        Toggle(page,"reviewed","已逐字校对本页");Toggle(page,"skip","本页不朗读")
-                        Action("查看本页源图",enabled=page.optString("sourceAsset").isNotEmpty()) { run { source=withContext(Dispatchers.IO) { val bytes=api.raw("/v1/assets/${page.getString("sourceAsset")}/page/${page.optInt("sourcePage")}?rotation=${page.optInt("sourceRotation")}");BitmapFactory.decodeByteArray(bytes,0,bytes.size) } } }
-                        Column {
-                            for((rotate,label) in listOf(false to "重新识别本页",true to "顺时针旋转90°并识别"))Action(label,enabled=page.optString("sourceAsset").isNotBlank()) { run {
-                                save();val result=withContext(Dispatchers.IO) { api.json("/v1/resources/$rid/pages/${page.getString("id")}/extract","POST",JSONObject().put("expectedVersion",item!!.getInt("draft_version")).put("rotation",if(rotate)(page.optInt("sourceRotation")+90)%360 else page.optInt("sourceRotation"))) }
-                                val task=awaitJob(result.getString("jobId"));refresh();message="本页识别：${task.getString("state")}；请重新校对，其他页面保留。"
-                            } }
-                        }
-                        Action("重新拍摄替换本页") { takePhoto("pages",page.getString("id")) }
-                        source?.let { Image(it.asImageBitmap(),"原稿对照",Modifier.fillMaxWidth().heightIn(max=480.dp)) }
-                        Row { Action("向前移动",enabled=pageIndex>0) { val list=(0 until pages.length()).map { pages.getJSONObject(it) }.toMutableList();java.util.Collections.swap(list,pageIndex,pageIndex-1);draft.put("pages",JSONArray(list));pageIndex--;item=JSONObject(current.toString()) };Action("删除本页") { pageToDelete=page.getString("id") } }
+                if(stage==2 && editorRoute=="main"){
+                    val reviewed=(0 until pages.length()).count{pages.getJSONObject(it).optBoolean("reviewed")}
+                    InfoRow("校对进度","$reviewed / ${pages.length()} 页")
+                    if(reviewed<pages.length()||(current.optString("kind")=="book"&&pages.length()==0)){
+                        Text("还有页面未确认，请完成逐页校对后发布。",color=MaterialTheme.colorScheme.error)
+                        TextButton(onClick={showReview()}){Text("去校对")}
                     }
-                }
-                Action("手工添加文字页") { pages.put(JSONObject().put("id",UUID.randomUUID().toString()).put("text","").put("reviewed",false));pageIndex=pages.length()-1;editingPage=true;item=JSONObject(current.toString()) }
-                Action("下一步：试听与发布"){stage=2}
-                }
-                Action("保存草稿",enabled=!busy) { run { save();message="草稿已保存；修改正文后需要重新试听" } }
-                if(stage==2){
-                val reviewed=(0 until pages.length()).count{pages.getJSONObject(it).optBoolean("reviewed")}
-                InfoRow("校对进度","$reviewed / ${pages.length()} 页")
-                val hasAudio=draft.optString("audioAsset").isNotEmpty()
-                val readable=(0 until pages.length()).any{pages.getJSONObject(it).let{p->!p.optBoolean("skip") && p.optString("text").isNotBlank()}}
-                val ready=reviewed==pages.length() && (hasAudio||readable) && (current.optString("kind")!="song"||hasAudio) && (current.optString("kind")!="book"||pages.length()>0)
-                if(!ready){Text(if(current.optString("kind")=="song"&&!hasAudio)"儿歌需先上传实际音频。" else "请补齐可朗读正文，并完成逐页校对。",color=MaterialTheme.colorScheme.error);TextButton(onClick={stage=1}){Text("去校对")}}
-                Toggle(draft,"complete","完整收录（关闭表示节选）");JsonField(draft,"excerpt","节选范围")
-                if(draft.optString("audioAsset").isNotEmpty())Action("试听已上传原音频",enabled=!busy) { run { save();val audio=withContext(Dispatchers.IO) { api.raw("/v1/assets/${draft.getString("audioAsset")}") };playPreview(audio);lastPreviewedDraft=JSONObject(item!!.getJSONObject("draft").toString()).put("auditioned",false).toString();auditionConfirmed=false;message="试听后确认完整范围和可发布状态" } }
-                val voice=draft.getJSONObject("voice")
-                if(draft.optString("audioAsset").isEmpty())VoiceControls(voice,voiceModels,resource=true) else Text("使用原录音，保留原声音色和情感")
-                Action("试听当前页",enabled=!busy && pages.length()>0) { run { save();val saved=item!!.getJSONObject("draft");val text=saved.getJSONArray("pages").getJSONObject(pageIndex).getString("text").take(600);val audio=withContext(Dispatchers.IO) { api.raw("/v1/speech/preview","POST",JSONObject().put("text",text).put("voice",saved.getJSONObject("voice")).put("story",true).toBody()) };playPreview(audio);lastPreviewedDraft=JSONObject(item!!.getJSONObject("draft").toString()).put("auditioned",false).toString();auditionConfirmed=false;message="请确认正文、页序和发音后勾选试听确认" } }
-                Row(verticalAlignment=Alignment.CenterVertically){Checkbox(auditionConfirmed,{auditionConfirmed=it;draft.put("auditioned",it);auditionSnapshot=if(it)draft.toString() else ""},enabled=lastPreviewedDraft==JSONObject(draft.toString()).put("auditioned",false).toString());Text("已试听并确认可发布")}
-                FullAction("发布给机器人",enabled=!busy&&ready&&auditionConfirmed) { run {
-                    require(draft.toString()==auditionSnapshot){"正文、范围或声音设置已修改，请重新试听并确认"}
-                    require(draft.optBoolean("complete") || draft.optString("excerpt").isNotBlank()){"请填写节选范围，或确认完整收录"}
-                    save();withContext(Dispatchers.IO) { api.json("/v1/resources/$rid/publish","POST",JSONObject().put("expectedVersion",item!!.getInt("draft_version")).put("requestId",UUID.randomUUID().toString())) };refresh();message="已发布固定版本；机器人可按书名或封面查找" } }
-                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) { for((action,label) in listOf("play" to "机器人播放","download" to "下载到机器人","remove_download" to "清理离线副本"))Action(label,enabled=!busy && current.getString("status")=="published") { run {
-                    val response=withContext(Dispatchers.IO) { api.json("/v1/robots/$robotId/control","POST",JSONObject().put("requestId",UUID.randomUUID().toString()).put("action",action).put("resourceId",rid)) }
-                    message="已发送：${response.getString("state")}，下载进度在维护页查看"
-                } } }
-                Action("下架",enabled=current.getString("status")=="published") { run { withContext(Dispatchers.IO) { api.json("/v1/resources/$rid/unlist","POST",JSONObject()) };refresh();message="已下架；离线设备会在联网同步后移除" } }
-                Action("删除资源") { delete=true }
+                    SectionHeading("收录范围")
+                    BookSelect("范围",if(draft.optBoolean("complete"))"complete" else "excerpt",listOf("complete" to "完整收录","excerpt" to "节选")){draft.put("complete",it=="complete");draftChanged()}
+                    if(!draft.optBoolean("complete"))FormField("节选范围（开始播放前朗读）",draft.optString("excerpt")){draft.put("excerpt",it.take(200));draftChanged()}
+                    SectionHeading("朗读设置")
+                    val hasAudio=draft.optString("audioAsset").isNotBlank()
+                    if(hasAudio)DesignGroup{Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("使用原录音");Text("保留原声音色、情感和语速。正文发音纠正不改变原录音。",fontSize=13.sp)}}
+                    else BookVoiceForm(draft.getJSONObject("voice"),voiceModels,draft.optString("language")){key,value->draft.getJSONObject("voice").put(key,value);draftChanged()}
+                    SectionHeading("试听与确认")
+                    val playable=(0 until pages.length()).filter{pages.getJSONObject(it).let{p->!p.optBoolean("skip")&&p.optString("text").isNotBlank()}}
+                    if(!hasAudio&&playable.isNotEmpty()){
+                        if(auditionPage !in playable)auditionPage=playable.first()
+                        BookSelect("选择试听页",auditionPage.toString(),playable.map{it.toString() to "第 ${it+1} 页${pages.getJSONObject(it).optString("label").takeIf{v->v.isNotBlank()}?.let{v->" · 页码 $v"}?:""}"}){stopPreview();auditionPage=it.toInt()}
+                    }
+                    FullAction(if(previewing)"停止试听" else if(hasAudio)"试听原录音" else "试听所选页",secondary=true,enabled=previewing||hasAudio||playable.isNotEmpty()){
+                        if(previewing)stopPreview()else audition(auditionPage,true)
+                    }
+                    if(message.contains("试听"))Text(message,fontSize=12.sp,color=MaterialTheme.colorScheme.primary)
+                    Text(if(hasAudio)"试听原录音可检查声音效果，也可直接确认收录范围后发布。" else "试听可选，用于检查声音和读音；不试听也可在完成校对、确认收录范围后发布。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    BookCheck("已试听并确认声音（可选）",auditionConfirmed&&auditionValid,enabled=auditionValid&&!previewing){auditionConfirmed=it;draft.put("auditioned",it)}
+                    BookCheck("已核对完整 / 节选范围",scopeConfirmed,enabled=!previewing){scopeConfirmed=it}
+                    Text("内容或声音修改后会清除旧试听记录，建议重新试听。发布生成固定版本，不会自动点播。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    if(current.getString("status")=="published")SectionLink("查看已发布资源","播放、下载和下架等操作在资源详情中进行"){exitEditor()}
                 }
             }
         }
-        pageToDelete?.let{id->AlertDialog(onDismissRequest={pageToDelete=null},title={Text("删除本页？")},text={Text("将从工作草稿移除这页，当前发布版本不受影响。")},confirmButton={TextButton(onClick={pageToDelete=null;val current=item!!;val draft=current.getJSONObject("draft");val pages=draft.getJSONArray("pages");draft.put("pages",JSONArray((0 until pages.length()).map{pages.getJSONObject(it)}.filter{it.getString("id")!=id}));draft.put("auditioned",false);auditionConfirmed=false;item=JSONObject(current.toString())}){Text("删除")}},dismissButton={TextButton(onClick={pageToDelete=null}){Text("取消")}})}
+        pageToDelete?.let{id->AlertDialog(onDismissRequest={pageToDelete=null},title={Text("删除本页？")},text={Text("将从工作草稿移除这页，当前发布版本不受影响。")},confirmButton={TextButton(onClick={pageToDelete=null;val current=item!!;val draft=current.getJSONObject("draft");val pages=draft.getJSONArray("pages");draft.put("pages",JSONArray((0 until pages.length()).map{pages.getJSONObject(it)}.filter{it.getString("id")!=id}));draft.put("auditioned",false);auditionConfirmed=false;scopeConfirmed=false;editingPage=false;item=JSONObject(current.toString())}){Text("删除")}},dismissButton={TextButton(onClick={pageToDelete=null}){Text("取消")}})}
         if(leaveEditor)AlertDialog(onDismissRequest={leaveEditor=false},title={Text("保存草稿修改？")},text={Text("保存草稿不会覆盖当前发布版；离开可选择保存或放弃。")},confirmButton={TextButton(onClick={leaveEditor=false;run{save();back()}}){Text("保存后离开")}},dismissButton={Row{TextButton(onClick={leaveEditor=false;back()}){Text("放弃修改")};TextButton(onClick={leaveEditor=false}){Text("继续编辑")}}})
         if(captureBatch && capturePath.isBlank())AlertDialog(
             onDismissRequest={ },title={ Text("已拍摄 ${capturedPages.size} 页") },
@@ -714,7 +779,7 @@ class MainActivity:ComponentActivity() {
 
 @Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,header:(@Composable ()->Unit)?=null,scroll:ScrollState?=null,content:@Composable ColumnScope.()->Unit) {
     val pageScroll=scroll ?: remember(title){ScrollState(0)}
-    Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.safeDrawingPadding().imePadding()) {
+    Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal)).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start=16.dp,end=20.dp,top=9.dp,bottom=18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
             if(onBack!=null)IconButton(onClick=onBack,modifier=Modifier.size(44.dp)){UiIcon("back",color=MaterialTheme.colorScheme.onSurface)}
             Text(title,fontSize=21.sp,fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))

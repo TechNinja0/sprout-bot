@@ -1119,6 +1119,89 @@
         }
       }
     },
+    "/v1/setup/requests": {
+      "post": {
+        "summary": "Request Connection",
+        "operationId": "request_connection_v1_setup_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/setup/requests/{request_id}/complete": {
+      "post": {
+        "summary": "Complete Connection",
+        "operationId": "complete_connection_v1_setup_requests__request_id__complete_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupComplete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/local/settings": {
       "post": {
         "summary": "Local Settings",
@@ -2932,6 +3015,62 @@
       }
     },
     "/v1/playlists/{pid}": {
+      "put": {
+        "summary": "Update Playlist",
+        "description": "Preserve playlist identity so scheduled plans keep referencing the edited list.",
+        "operationId": "update_playlist_v1_playlists__pid__put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Playlist"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "summary": "Remove Playlist",
         "operationId": "remove_playlist_v1_playlists__pid__delete",
@@ -4721,6 +4860,49 @@
           "draft"
         ],
         "title": "ResourceEdit"
+      },
+      "SetupComplete": {
+        "properties": {
+          "claim": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 32,
+            "title": "Claim"
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 32,
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "claim",
+          "token"
+        ],
+        "title": "SetupComplete"
+      },
+      "SetupRequest": {
+        "properties": {
+          "claimHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Claimhash"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "default": "家庭小伙伴"
+          }
+        },
+        "type": "object",
+        "required": [
+          "claimHash"
+        ],
+        "title": "SetupRequest"
       },
       "Speak": {
         "properties": {

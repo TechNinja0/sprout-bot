@@ -47,6 +47,9 @@ private val LightRobotColors=lightColorScheme(primary=Color(0xFF196956),onPrimar
             "check" -> {line(5f,12f,10f,17f);line(10f,17f,20f,6f)}
             "send" -> {line(12f,20f,12f,4f);line(12f,4f,6f,10f);line(12f,4f,18f,10f)}
             "mic" -> {box(9f,3f,6f,12f);line(5f,12f,5f,16f);line(5f,16f,12f,20f);line(12f,20f,19f,16f);line(19f,16f,19f,12f);line(12f,20f,12f,23f)}
+            "camera" -> {box(3f,6f,18f,15f);box(8f,3f,8f,3f);drawCircle(color,4f*u,Offset(12f*u,13f*u),style=Stroke(1.5f*u))}
+            "image" -> {box(3f,3f,18f,18f);drawCircle(color,1.5f*u,Offset(8f*u,8f*u));line(3f,18f,10f,11f);line(10f,11f,16f,17f);line(15f,16f,19f,12f);line(19f,12f,21f,14f)}
+            "music" -> {line(10f,18f,10f,5f);line(10f,5f,20f,3f);line(20f,3f,20f,16f);drawCircle(color,3f*u,Offset(7f*u,18f*u),style=Stroke(1.5f*u));drawCircle(color,3f*u,Offset(17f*u,16f*u),style=Stroke(1.5f*u))}
             "book" -> {box(3f,4f,18f,16f);line(12f,4f,12f,20f)}
             "download" -> {line(12f,3f,12f,15f);line(7f,10f,12f,15f);line(12f,15f,17f,10f);line(4f,16f,4f,21f);line(4f,21f,20f,21f);line(20f,21f,20f,16f)}
             "qr" -> {box(3f,3f,6f,6f);box(15f,3f,6f,6f);box(3f,15f,6f,6f);line(15f,15f,21f,15f);line(15f,15f,15f,21f);line(19f,19f,21f,21f)}
@@ -143,15 +146,15 @@ fun statusLabel(value:String)=mapOf("SELF_CHECK" to "设备检查中","MANAGEMEN
 }
 fun resourceStatus(value:String)=mapOf("draft" to "草稿","published" to "已发布","unlisted" to "已下架","complete" to "已下载","completed" to "已下载","ready" to "已下载","downloaded" to "已完整下载","removed" to "已清理手机副本","pending_removal" to "等待机器人同步清理","downloading" to "下载中","failed" to "下载失败","queued" to "等待处理","processing" to "正在处理","needs_review" to "待校对","cancelled" to "已取消","interrupted" to "已中断","stale" to "草稿版本已更新")[value] ?: value
 
-@Composable fun PronunciationEditor(page:JSONObject){
+@Composable fun PronunciationEditor(page:JSONObject,onChanged:()->Unit={}){
     var words by remember(page){mutableStateOf(page.optJSONObject("pronunciation") ?: JSONObject())}
     var original by remember(page){mutableStateOf("")};var spoken by remember(page){mutableStateOf("")}
     Text("发音纠正",fontWeight=FontWeight.Medium)
     val keys=words.keys().asSequence().toList()
-    for(word in keys)Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("$word → ${words.getString(word)}",Modifier.weight(1f));TextButton(onClick={words.remove(word);words=JSONObject(words.toString());page.put("pronunciation",words);page.put("reviewed",false)}){Text("删除")}}
+    for(word in keys)Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("$word → ${words.getString(word)}",Modifier.weight(1f));TextButton(onClick={words.remove(word);words=JSONObject(words.toString());page.put("pronunciation",words);page.put("reviewed",false);onChanged()}){Text("删除")}}
     OutlinedTextField(original,{original=it.take(80)},label={Text("原文中的词")},modifier=Modifier.fillMaxWidth())
     OutlinedTextField(spoken,{spoken=it.take(160)},label={Text("希望读成的文字")},modifier=Modifier.fillMaxWidth())
-    Action(if(words.has(original.trim()))"更新此词读音" else "添加发音纠正",original.isNotBlank()&&spoken.isNotBlank()){words.put(original.trim(),spoken.trim());words=JSONObject(words.toString());page.put("pronunciation",words);page.put("reviewed",false);original="";spoken=""}
+    Action(if(words.has(original.trim()))"更新此词读音" else "添加发音纠正",original.isNotBlank()&&spoken.isNotBlank()){words.put(original.trim(),spoken.trim());words=JSONObject(words.toString());page.put("pronunciation",words);page.put("reviewed",false);onChanged();original="";spoken=""}
     Text("只影响朗读，不替换校对正文。修改后请重新校对与试听。",fontSize=12.sp)
 }
 

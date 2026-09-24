@@ -18,6 +18,7 @@ from .library import router as library_router
 from .management import router as management_router
 from .preload import preload
 from .priority_slot import PrioritySlot
+from .setup import router as setup_router
 from .store import StorageCapacityError, Store
 from .tts import worker_python
 from .worker_channel import SpeechWorker
@@ -125,6 +126,7 @@ def create_app(root: Path | str = "runtime"):
     app.include_router(keywords_router)
     app.include_router(intelligence_router)
     app.include_router(auth_router)
+    app.include_router(setup_router)
     app.include_router(companion_router)
     app.include_router(library_router)
     app.include_router(imports_router)
@@ -136,6 +138,8 @@ def create_app(root: Path | str = "runtime"):
         return {
             "ok": True,
             "protocolVersion": 1,
+            "addressSetup": True,
+            "automaticSetup": True,
             "serviceId": app.state.store.meta("service_id"),
             "serverTime": time.time(),
             "modelWarmup": app.state.model_warmup,
