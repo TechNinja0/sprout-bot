@@ -62,6 +62,11 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
     val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted)startRecording() else notice="未获得麦克风权限，可继续使用文字调试"}
     fun speak(row:JSONObject){val id=row.optString("recordId");if(id.isBlank()||recording||busy)return;speechJob?.cancel();(context as? MainActivity)?.stopPreview();speechJob=scope.launch{try{val bytes=audioCache[id] ?: withContext(Dispatchers.IO){api.raw("/v1/records/$id/speech","POST",JSONObject().toBody())}.also{if(audioCache.size>=20)audioCache.remove(audioCache.keys.first());audioCache[id]=it};play(bytes)}catch(e:CancellationException){throw e}catch(e:Exception){notice="朗读失败，可再次点击重试：${e.message}"}}}
     BackHandler{stop();back()}
+    // 仅新消息滚到底部；进入记录再返回或键盘改变高度，不重置阅读位置。
+    LaunchedEffect(messages.size){
+        withFrameNanos { };withFrameNanos { }
+        scroll.animateScrollTo(scroll.maxValue)
+    }
     if(history){RecordsScreen(connection,debug=true,back={history=false},play=play);return}
     fun send(){
         if(busy||recording||text.isBlank())return
@@ -76,7 +81,6 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
         }catch(e:CancellationException){throw e}catch(e:Exception){text=question;notice="未收到回复，输入已保留，可重试：${e.message}"}finally{busy=false}}
     }
     fun record(){if(ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startRecording() else permission.launch(Manifest.permission.RECORD_AUDIO)}
-    LaunchedEffect(messages.size,busy,scroll.maxValue){scroll.animateScrollTo(scroll.maxValue)}
     Page(if(prompts==null)title else "提示词草稿试聊",notice,busy,onBack={stop();back()},header=tabs,scroll=scroll,bottom={
         Surface(color=MaterialTheme.colorScheme.background,shadowElevation=0.dp){Column(Modifier.padding(start=20.dp,end=20.dp,top=8.dp,bottom=0.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
@@ -123,14 +127,14 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
 @Composable fun RecordsScreen(connection:JSONObject,debug:Boolean=false,back:()->Unit,play:(ByteArray)->Unit,bottom:(@Composable ()->Unit)?=null,openUsage:(()->Unit)?=null) {
     val api=remember(connection){Api(connection)};val scope=rememberCoroutineScope();var rows by remember{mutableStateOf(JSONArray())};var busy by remember{mutableStateOf(false)};var message by remember{mutableStateOf("")};var remove by remember{mutableStateOf<String?>(null)}
     val context=LocalContext.current;val lifecycle=LocalLifecycleOwner.current.lifecycle
-    var kind by remember{mutableStateOf(if(debug)"debug" else "companion")};var selectedSession by remember{mutableStateOf<String?>(null)}
+    var kind by rememberNavigationValue("records/$debug/kind",if(debug)"debug" else "companion");var selectedSession by remember{mutableStateOf<String?>(null)}
     fun exit(){(context as? MainActivity)?.stopPreview();if(selectedSession!=null)selectedSession=null else back()}
     fun launch(block:suspend ()->Unit){if(busy)return;scope.launch{busy=true;try{block()}catch(e:CancellationException){throw e}catch(e:Exception){message=e.message ?: "读取失败"}finally{busy=false}}}
     suspend fun refresh(){rows=withContext(Dispatchers.IO){api.array("/v1/records?kind=$kind")}}
     LaunchedEffect(kind){rows=JSONArray();selectedSession=null;launch{refresh()}}
     DisposableEffect(api,lifecycle){val observer=LifecycleEventObserver{_,event->if(event==Lifecycle.Event.ON_STOP){scope.coroutineContext.cancelChildren();api.cancel();(context as? MainActivity)?.stopPreview()}};lifecycle.addObserver(observer);onDispose{api.cancel();(context as? MainActivity)?.stopPreview();lifecycle.removeObserver(observer)}}
     BackHandler{exit()}
-    Page(if(selectedSession!=null)"会话详情" else if(debug)"调试记录" else "对话记录",message,busy,onBack={exit()},bottom=if(selectedSession==null)bottom else null){
+    Page(if(selectedSession!=null)"会话详情" else if(debug)"调试记录" else "对话记录",message,busy,pageKey="records/$debug/$kind/${selectedSession ?: "list"}",onBack={exit()},bottom=if(selectedSession==null)bottom else null){
         if(!debug&&selectedSession==null)Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){FilterChip(kind=="companion",{kind="companion"},enabled=!busy,label={Text("陪伴对话")});FilterChip(kind=="debug",{kind="debug"},enabled=!busy,label={Text("调试会话")});if(openUsage!=null)TextButton(onClick=openUsage){Text("使用记录")}}
         Text(if(debug)"仅显示这台管理设备的调试会话" else "默认不保存；启用后记录后续对话。这里显示请求及服务回答，不代表孩子已听完。",fontSize=12.sp)
         Row{Action("刷新",!busy){launch{refresh()}};TextButton(onClick={remove="all"},enabled=!busy&&rows.length()>0){Text("清空")}}

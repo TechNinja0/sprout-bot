@@ -38,8 +38,8 @@ fun KnowledgeScreen(connection: JSONObject, back: () -> Unit) {
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var page by rememberSaveable { mutableStateOf("list") }
-    var query by rememberSaveable { mutableStateOf("") }
-    var filter by rememberSaveable { mutableStateOf("") }
+    var query by rememberNavigationValue("knowledge/query")
+    var filter by rememberNavigationValue("knowledge/filter")
     var rows by remember { mutableStateOf(JSONArray()) }
     var total by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
@@ -137,7 +137,7 @@ fun KnowledgeScreen(connection: JSONObject, back: () -> Unit) {
         return
     }
     val title = when (page) { "edit" -> if (version == 0) "添加知识" else "编辑知识"; "preview" -> "预览与发布"; else -> "知识库" }
-    Page(title, message, busy || (page == "list" && loading), onBack = ::leave, bottom = if (page == "edit" || page == "preview") ({
+    Page(title, message, busy || (page == "list" && loading), pageKey = "knowledge/$page/${if (page == "list") "$query/$filter" else id}", onBack = ::leave, bottom = if (page == "edit" || page == "preview") ({
         Surface(shadowElevation = 4.dp) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (page == "edit") {

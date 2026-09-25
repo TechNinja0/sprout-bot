@@ -72,8 +72,9 @@ private val LightRobotColors=lightColorScheme(primary=Color(0xFF196956),onPrimar
     Column { Row(Modifier.fillMaxWidth().padding(vertical=14.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)) {Text(label,Modifier.weight(.4f),fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(value,Modifier.weight(.6f),fontSize=13.sp,textAlign=androidx.compose.ui.text.style.TextAlign.End)};HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant) }
 }
 @Composable fun DetailDisclosure(title:String,content:@Composable ColumnScope.()->Unit) {
-    var expanded by remember{mutableStateOf(false)}
-    Column {TextButton(onClick={expanded=!expanded},modifier=Modifier.semantics{contentDescription=title},contentPadding=PaddingValues(0.dp)){Text((if(expanded)"▾  " else "▸  ")+title,color=MaterialTheme.colorScheme.onSurfaceVariant)};if(expanded)DesignGroup {Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)} }
+    var expandedValue by rememberNavigationValue("${LocalPageStateKey.current}/disclosure/$title","false")
+    val expanded=expandedValue=="true"
+    Column {TextButton(onClick={expandedValue=(!expanded).toString()},modifier=Modifier.semantics{contentDescription=title},contentPadding=PaddingValues(0.dp)){Text((if(expanded)"▾  " else "▸  ")+title,color=MaterialTheme.colorScheme.onSurfaceVariant)};if(expanded)DesignGroup {Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)} }
 }
 @Composable fun FullAction(title:String,secondary:Boolean=false,enabled:Boolean=true,click:()->Unit) {
     if(secondary)OutlinedButton(click,Modifier.fillMaxWidth().heightIn(min=48.dp),enabled=enabled,shape=RoundedCornerShape(14.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){Text(title)}

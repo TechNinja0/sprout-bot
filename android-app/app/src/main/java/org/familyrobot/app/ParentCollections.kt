@@ -35,7 +35,7 @@ import java.util.UUID
     var rows by remember{mutableStateOf(JSONArray())};var resources by remember{mutableStateOf(JSONArray())}
     var events by remember{mutableStateOf(JSONArray())};var busy by remember{mutableStateOf(false)};var message by remember{mutableStateOf("")}
     var draft by remember{mutableStateOf<JSONObject?>(null)};var baseline by remember{mutableStateOf("")}
-    var filter by remember{mutableStateOf("pending")};var leaving by remember{mutableStateOf(false)};var confirm by remember{mutableStateOf<String?>(null)}
+    var filter by rememberNavigationValue("collection/$kind/filter","pending");var leaving by remember{mutableStateOf(false)};var confirm by remember{mutableStateOf<String?>(null)}
     fun launch(block:suspend ()->Unit){if(busy)return;scope.launch{busy=true;try{block()}catch(e:CancellationException){throw e}catch(e:Exception){message=e.message ?: "操作失败"}finally{busy=false}}}
     suspend fun refresh(){withContext(Dispatchers.IO){rows=api.array("/v1/$endpoint");if(memory)events=api.array("/v1/memory-actions") else resources=api.json("/v1/resources").getJSONArray("items")}}
     fun exit(){if(busy)return;if(draft==null)back() else if(draft.toString()!=baseline)leaving=true else{draft=null;message=""}}
@@ -54,7 +54,7 @@ import java.util.UUID
     }
     val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")){uri->if(uri!=null)launch{withContext(Dispatchers.IO){context.contentResolver.openOutputStream(uri)!!.use{it.write(JSONObject().put("memories",rows).put("withdrawals",events).toString(2).toByteArray())}};message="偏好记录已保存，请保管在私有位置"}}
     LaunchedEffect(kind){launch{refresh()}};DisposableEffect(api){onDispose{api.cancel()}};BackHandler{exit()}
-    Page(if(draft!=null)if(memory)"审核偏好" else "编辑清单" else if(memory)"偏好与记忆" else "播放清单",message,busy,onBack={exit()}){
+    Page(if(draft!=null)if(memory)"审核偏好" else "编辑清单" else if(memory)"偏好与记忆" else "播放清单",message,busy,pageKey="collection/$kind/${draft?.optString("id") ?: "list"}",onBack={exit()}){
         val d=draft
         if(d==null){
             if(memory){Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(5.dp)){for((state,label) in listOf("pending" to "待审核","approved" to "已批准","suspended" to "停用待核对","rejected" to "已拒绝"))FilterChip(filter==state,{filter=state},label={Text(label)})}}
@@ -119,7 +119,7 @@ import java.util.UUID
     fun edit(plan:JSONObject?){draft=plan?.let{JSONObject(it.toString())} ?: JSONObject().put("id",UUID.randomUUID().toString().replace("-","")).put("playlistId",lists.getJSONObject(0).getString("id")).put("enabled",false).put("time","18:30").put("minutes",10).put("days",JSONArray((1..7).toList()));baseline=draft.toString();message=""}
     fun exit(){if(busy)return;if(draft==null)back() else if(draft.toString()!=baseline)leave=true else draft=null}
     LaunchedEffect(api){launch{load()}};DisposableEffect(api){onDispose{api.cancel()}};BackHandler{exit()}
-    Page(if(draft==null)"英语计划" else "编辑英语计划",message,busy,onBack={exit()}){
+    Page(if(draft==null)"英语计划" else "编辑英语计划",message,busy,pageKey="plans/${draft?.optString("id") ?: "list"}",onBack={exit()}){
         val d=draft
         if(d==null){Text("主动播放默认关闭。只在前台待机且时段、额度允许时开始，错过、重连或重启不补播。")
             val plans=config.optJSONArray("listeningPlans") ?: JSONArray()

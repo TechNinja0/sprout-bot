@@ -96,6 +96,9 @@ class MainActivity:ComponentActivity() {
         SideEffect { robotManagement=manage || unlock }
         fun change(next:String) { robotManagement=false;runtime?.close();runtime=null;vault.save("identity",JSONObject().put("mode",next));mode=next;manage=false }
         val robotConnection=remember(mode) { vault.get("robot") }
+        val stateConnection=remember(mode){vault.get(mode)}
+        val stateOwner=mode+":"+stateConnection?.optString("address").orEmpty()+":"+stateConnection?.optString("deviceId").orEmpty()
+        PageNavigationScope(stateOwner) {
         if(mode=="robot" && robotConnection!=null) {
             val robot=remember(robotConnection) { RobotRuntime(this,vault,robotConnection).also { runtime=it;if(foreground)it.resumeForeground() } }
             DisposableEffect(robot) { window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);onDispose { robot.close();if(runtime===robot)runtime=null;window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) } }
@@ -122,6 +125,7 @@ class MainActivity:ComponentActivity() {
             if(pinError.startsWith("请在家庭电脑"))TextButton(onClick={unlock=false;pin="";change("setup")}){Text("使用管理员恢复材料")}
 
         } },confirmButton={ TextButton(onClick={ if(vault.verifyPin(pin)) { unlock=false;manage=true;pin="";pinError="" } else pinError="PIN 不正确或仍在锁定时间内" }) { Text("进入") } },dismissButton={ TextButton(onClick={ unlock=false;pin="";runtime?.resumeForeground() }) { Text("取消") } })
+        }
     }
     @Composable private fun Setup(done:(String)->Unit) { SetupScreen(this,vault,done) }
     @Composable private fun RobotManagement(robot:RobotRuntime,close:()->Unit,switch:(String)->Unit) {
@@ -167,7 +171,7 @@ class MainActivity:ComponentActivity() {
         if(page=="服务器连接"){RobotConnectionScreen(robot,{back()},{switch("setup")});return}
         if(page=="主题颜色"){AppearancePage(themeMode,::chooseTheme){back()};return}
         if(page in listOf("唤醒与互动","AI 提示词","声音","隐私与权限")){DeviceSettingsScreen(robot.connection,true,page,{back()},{playPreview(it)});return}
-        Page(if(page=="首页")"机器人管理" else if(page=="设置")"小伙伴设置" else if(page=="离线详情")selectedOffline?.second ?: "离线内容" else page,message,creatingPairing,onBack={back()},header=if(page=="检查与调试")({DiagnosticTabs(false){chat=it}}) else null) {
+        Page(if(page=="首页")"机器人管理" else if(page=="设置")"小伙伴设置" else if(page=="离线详情")selectedOffline?.second ?: "离线内容" else page,message,creatingPairing,pageKey="robot/$page/${if(page=="离线详情")selectedOffline?.first.orEmpty() else ""}",onBack={back()},header=if(page=="检查与调试")({DiagnosticTabs(false){chat=it}}) else null) {
             when(page){
                 "首页" -> {
                     ConnectionCard(robot.online,if(robot.online)"家庭电脑在线，连接正常。" else "暂时无法访问家庭电脑，在线对话不可用。"){go("服务器连接")}
@@ -257,6 +261,9 @@ class MainActivity:ComponentActivity() {
         val api=remember { Api(connection) };val scope=rememberCoroutineScope()
         var tab by rememberSaveable { mutableStateOf("首页") };var message by remember { mutableStateOf("") };var busy by remember { mutableStateOf(false) }
         var config by remember { mutableStateOf(JSONObject()) };var version by remember { mutableIntStateOf(0) }
+        var resourceSearch by rememberNavigationValue("parent/resources/search")
+        var resourceFilter by rememberNavigationValue("parent/resources/filter","all")
+        var resourceDownloads by remember { mutableStateOf(JSONArray()) }
         var items by remember { mutableStateOf(JSONArray()) };var selected by remember { mutableStateOf<String?>(null) }
         var data by remember { mutableStateOf(JSONArray()) };var models by remember { mutableStateOf(JSONObject()) }
         var summary by remember { mutableStateOf(JSONObject()) }
@@ -302,6 +309,7 @@ class MainActivity:ComponentActivity() {
             } } }
             if(targetTab!=tab || requestVersion!=refreshVersion)return
             data=result.optJSONArray("data") ?: JSONArray()
+            if(targetTab=="资源库")resourceDownloads=data
             result.optJSONArray("items")?.let { items=it }
             result.optJSONObject("summary")?.let { summary=it }
             result.optJSONObject("models")?.let { models=it }
@@ -415,13 +423,13 @@ class MainActivity:ComponentActivity() {
                 }
 
                 "资源库" -> {
-                    var title by remember { mutableStateOf("") };var creating by remember{mutableStateOf(false)};var kind by remember{mutableStateOf("book")};var search by remember{mutableStateOf("")};var filter by remember{mutableStateOf("all")}
-                    val selection=remember{JSONObject().put("filter","all")}
-                    Input("搜索书名 / 标签",search){search=it}
-                    Dropdown(selection,"filter","筛选",listOf("all" to "全部","book" to "图书","story" to "故事","song" to "儿歌","dialogue" to "英语短句","draft" to "草稿","published" to "已发布","unlisted" to "已下架","favorite" to "收藏","downloaded" to "已下载")){filter=it}
+                    var title by remember { mutableStateOf("") };var creating by remember{mutableStateOf(false)};var kind by remember{mutableStateOf("book")};
+                    val selection=remember(resourceFilter){JSONObject().put("filter",resourceFilter)}
+                    Input("搜索书名 / 标签",resourceSearch){resourceSearch=it}
+                    Dropdown(selection,"filter","筛选",listOf("all" to "全部","book" to "图书","story" to "故事","song" to "儿歌","dialogue" to "英语短句","draft" to "草稿","published" to "已发布","unlisted" to "已下架","favorite" to "收藏","downloaded" to "已下载")){resourceFilter=it}
                     FullAction("添加资源"){if(kind=="all")kind="book";creating=true}
-                    val downloaded=(0 until data.length()).map{data.getJSONObject(it)}.filter{it.optString("state")=="downloaded"}.map{it.optString("resource_id")}.toSet()
-                    val visible=(0 until items.length()).map{items.getJSONObject(it)}.filter{item->val meta=item.getJSONObject("metadata");meta.toString().contains(search,true) && when(filter){"all"->true;"favorite"->meta.optBoolean("favorite");"downloaded"->item.getString("id") in downloaded;"draft","published","unlisted"->item.optString("status")==filter;else->item.getString("kind")==filter}}
+                    val downloaded=(0 until resourceDownloads.length()).map{resourceDownloads.getJSONObject(it)}.filter{it.optString("state")=="downloaded"}.map{it.optString("resource_id")}.toSet()
+                    val visible=(0 until items.length()).map{items.getJSONObject(it)}.filter{item->val meta=item.getJSONObject("metadata");meta.toString().contains(resourceSearch,true) && when(resourceFilter){"all"->true;"favorite"->meta.optBoolean("favorite");"downloaded"->item.getString("id") in downloaded;"draft","published","unlisted"->item.optString("status")==resourceFilter;else->item.getString("kind")==resourceFilter}}
 
                     if(visible.isEmpty())EmptyState("暂无符合条件的资源","添加资源后，完成校对与试听再发布给小伙伴。")
                     else DesignGroup{visible.forEachIndexed{index,item->val meta=item.getJSONObject("metadata");DesignRow(meta.getString("title"),"${resourceStatus(item.optString("status"))} · ${item.optInt("pageCount")} 页 · ${if(meta.optString("language")=="en")"英文" else "中文"}",icon="book",divider=index<visible.lastIndex){selected=item.getString("id")}}}
@@ -689,13 +697,15 @@ class MainActivity:ComponentActivity() {
             pageIndex=pages.length()-1;stage=1;editingPage=true;editorRoute="main";editorHistory=emptyList();item=JSONObject(current.toString());message=""
         }
         val editorTitle=when(editorRoute){"cover"->"录入封面";"import"->"录入正文";"audio"->"导入已有音频";"jobs"->"本书导入任务";else->if(stage==1)if(editingPage)"校对本页" else "逐页校对" else if(stage==2)"试听与发布" else if(item?.optString("kind")=="book")"录入图书" else "编辑资源草稿"}
-        val editorScroll=remember(editorRoute,stage,editingPage,if(editingPage)pageIndex else -1){ScrollState(0)}
+        val editorPageId=if(editingPage)item?.getJSONObject("draft")?.getJSONArray("pages")?.optJSONObject(pageIndex)?.optString("id").orEmpty() else "list"
+        val editorPageKey="book/$rid/editor/$editorRoute/$stage/$editorPageId"
+        val editorScroll=rememberPageScroll(editorPageKey,!busy&&item!=null)
         var reviewViewport by remember{mutableStateOf(Rect.Zero)}
         val currentDraft=item?.getJSONObject("draft")
         val publishReady=currentDraft?.let{bookReadyToPublish(item!!.getString("kind"),it)&&(it.optString("voiceSource","custom")=="shared"||it.getJSONObject("voice").optDouble("speed",1.0) in 0.7..1.3)}==true
         val auditionValid=currentDraft?.let{bookAuditionKey(it)==lastPreviewedDraft}==true
         val pageMessage=if(editorRoute=="main"&&(stage==2||stage==1&&editingPage)&&message.contains("试听"))"" else message
-        Page(editorTitle,pageMessage,busy,onBack={if(!busy)editorBack()},scroll=editorScroll,onScrollViewport={reviewViewport=it},
+        Page(editorTitle,pageMessage,busy,onBack={if(!busy)editorBack()},scroll=editorScroll,pageKey=editorPageKey,onScrollViewport={reviewViewport=it},
             header={EditorSteps(stage,{stopPreview();stage=it;editingPage=false;editorRoute="main";editorHistory=emptyList();message=""},!busy&&!previewing)},
             bottom={if(editorRoute=="main"){
                 when(stage){
@@ -898,8 +908,8 @@ class MainActivity:ComponentActivity() {
     }
 }
 
-@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,header:(@Composable ()->Unit)?=null,scroll:ScrollState?=null,onScrollViewport:((Rect)->Unit)?=null,content:@Composable ColumnScope.()->Unit) {
-    val pageScroll=scroll ?: remember(title){ScrollState(0)}
+@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,header:(@Composable ()->Unit)?=null,scroll:ScrollState?=null,onScrollViewport:((Rect)->Unit)?=null,pageKey:String=title,contentReady:Boolean=!busy,content:@Composable ColumnScope.()->Unit) {
+    val pageScroll=scroll ?: rememberPageScroll(pageKey,contentReady)
     Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal)).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start=16.dp,end=20.dp,top=9.dp,bottom=18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
             if(onBack!=null)IconButton(onClick=onBack,modifier=Modifier.size(44.dp).semantics{contentDescription="返回"}){UiIcon("back",color=MaterialTheme.colorScheme.onSurface)}
@@ -910,7 +920,7 @@ class MainActivity:ComponentActivity() {
         if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         Column(Modifier.weight(1f).onGloballyPositioned{onScrollViewport?.invoke(it.boundsInRoot())}.verticalScroll(pageScroll).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             if(message.isNotEmpty())Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){Text(message,Modifier.padding(14.dp),fontSize=13.sp)}
-            content();Spacer(Modifier.height(24.dp))
+            CompositionLocalProvider(LocalPageStateKey provides pageKey){content()};Spacer(Modifier.height(24.dp))
         }
         bottom?.invoke()
     } }

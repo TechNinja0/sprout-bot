@@ -73,7 +73,7 @@ import java.util.UUID
     LaunchedEffect(rid){run{refresh()}}
     fun control(action:String){run{val id=UUID.randomUUID().toString();withContext(Dispatchers.IO){api.json("/v1/robots/$robotId/control","POST",JSONObject().put("requestId",id).put("action",action).put("resourceId",rid))};var state="pending";repeat(12){if(state=="pending"){delay(1000);state=withContext(Dispatchers.IO){api.json("/v1/commands/$id").getString("state")}}};message=if(state=="applied")"指令已接收，播放状态请看首页；下载请刷新本页查看" else "尚未确认执行（$state），请核对状态";refresh()}}
     androidx.activity.compose.BackHandler(onBack=back)
-    Page("资源详情",message,busy,onBack=back){value?.let{v->val draft=v.getJSONObject("draft");val published=v.optString("status")=="published"
+    Page("资源详情",message,busy,onBack=back,pageKey="book/$rid/overview",contentReady=value!=null&&!busy){value?.let{v->val draft=v.getJSONObject("draft");val published=v.optString("status")=="published"
         Text(draft.getString("title"),fontSize=24.sp);Text(if(published)"已发布固定版本 · 工作草稿可独立编辑" else "草稿 / 已下架")
         if(published)AudioPreparationStatus(api,rid,v.optString("published_id"))
         val downloaded=(0 until downloads.length()).map{downloads.getJSONObject(it)}.firstOrNull{it.optString("resource_id")==rid}
