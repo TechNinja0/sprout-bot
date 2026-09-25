@@ -287,7 +287,7 @@ private fun KnowledgeTry(api: Api, draft: JSONObject?, back: () -> Unit) {
             }
         }
         answer?.let { value ->
-            SectionHeading(when (value.getString("status")) { "matched" -> "命中知识"; "clarify", "ambiguous" -> "需要确认问法"; else -> "暂未找到可靠讲解" })
+            SectionHeading(when (value.getString("status")) { "matched" -> "命中知识"; "clarify", "ambiguous" -> "需要确认问法"; else -> "知识库未命中" })
             DesignGroup { Text(value.getString("text"), Modifier.padding(20.dp), fontSize = 18.sp, lineHeight = 29.sp) }
             value.optJSONObject("knowledge")?.let { Text("来源：${it.optString("source")}", fontSize = 13.sp) }
             val candidates = value.optJSONArray("candidates") ?: JSONArray()
@@ -295,6 +295,7 @@ private fun KnowledgeTry(api: Api, draft: JSONObject?, back: () -> Unit) {
                 Text("可能想问（点击试问）", fontSize = 13.sp)
                 for (i in 0 until candidates.length()) TextButton(onClick = { text = candidates.getJSONObject(i).getString("question") }) { Text(candidates.getJSONObject(i).getString("question")) }
             }
+            Text("这里只预览知识卡片；日常问答未命中时会继续尝试本地模型讲解。", fontSize = 12.sp)
             Text("${value.optDouble("lookupMs")} ms 本地检索 · 不包含网络和朗读时间", fontSize = 12.sp)
         }
     }

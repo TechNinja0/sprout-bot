@@ -146,7 +146,7 @@ def test_matching_preserves_meaning_and_does_not_make_up_answers(system):
             result = manager.query(q)
             assert result["status"] != "matched"
         assert manager.query("苹果是什么？")["status"] == "miss"
-        assert turn(c, rh, "宇宙里到底有多少个星球")["text"] == MISS
+        assert manager.query("宇宙里到底有多少个星球")["status"] == "miss"
         assert "knowledge" not in turn(c, rh, "停止")
 
 

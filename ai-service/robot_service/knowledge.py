@@ -19,7 +19,7 @@ from .store import dumps, uid
 
 router = APIRouter(prefix="/v1/knowledge", tags=["knowledge"])
 MAX_CARDS = 5000
-MISS = "这个问题我还没有找到可靠的讲解，暂时不能确定。可以和爸爸妈妈一起查一查。"
+MISS = "暂未匹配到可用的知识卡片讲解。"
 FOLLOWUPS = {
     "再详细讲讲",
     "详细一点",
@@ -364,11 +364,21 @@ def try_answer(request, text, age, prior, simple=False):
         mode,
         previous_id=pending if confirmed else previous.get("id"),
     )
+    # 百科的字面相似不等于同一个问题（鱼在水里呼吸/船浮在水上）。
+    # 近似百科仍交给模型回答原问题；家庭卡片需要先确认，不能猜家庭事实。
+    family_clarification = (
+        result["status"] == "clarify"
+        and request.app.state.knowledge.snapshot.entries.get(
+            result["candidates"][0]["id"], {}
+        )
+        .get("card", {})
+        .get("kind")
+        == "family"
+    )
     if (
         confirmed
-        or result["status"] == "matched"
-        or result["status"] == "ambiguous"
-        or factual_question(text)
+        or result["status"] in {"matched", "ambiguous"}
+        or family_clarification
         or (previous and normalize(text) in FOLLOWUPS)
     ):
         return {
@@ -377,6 +387,8 @@ def try_answer(request, text, age, prior, simple=False):
             "knowledgeStatus": result["status"],
             "story": False,
         }
+    # 知识库是优先回答来源，不是问题白名单。普通未命中继续本地模型路径；
+    # 已有卡片的追问/确认仍在上面重新检查发布状态，不能复述停用的旧正文。
     return None
 
 

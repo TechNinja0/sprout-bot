@@ -29,7 +29,9 @@ from .reply_policy import (
     STORY_PREFIX,
     bound_reply,
     generation_options,
+    safety_reply,
     turn_guidance,
+    unavailable_fact_reply,
 )
 from .schemas import Lookup, Strict, Voice
 from .store import digest, dumps
@@ -562,23 +564,11 @@ async def execute_turn(body: Turn, request: Request, user):
             "action": "speak",
             "text": "我们先听书架上的故事吧。爸爸妈妈可以在设置里开启原创故事。",
         }
-    if any(
-        word in body.text
-        for word in (
-            "能吃",
-            "可以吃",
-            "能喝",
-            "可以喝",
-            "药",
-            "有毒",
-            "煤气",
-            "插座",
-            "点火",
-        )
-    ):
+    safety_text = safety_reply(body.text)
+    if safety_text:
         return {
             "action": "speak",
-            "text": "这个需要爸爸妈妈先确认，我不能告诉你自己试。",
+            "text": safety_text,
         }
     from .games import respond as game_response
 
@@ -632,6 +622,11 @@ async def execute_turn(body: Turn, request: Request, user):
             }
             return known
     memory_epoch = request.app.state.memory_epoch
+    unavailable = (
+        unavailable_fact_reply(body.text) if not body.image and not original else None
+    )
+    if unavailable:
+        return {"action": "speak", "text": unavailable, "story": False}
     memory = [
         json.loads(r["body"])["content"]
         for r in store.read("SELECT body FROM memories WHERE state='approved'")

@@ -14,7 +14,12 @@ from pydantic import Field
 from .auth import config_set, fail, principal, robot, scope
 from .intelligence import Speak
 from .prompt_config import Prompts, defaults, expand
-from .reply_policy import bound_reply, generation_options, turn_guidance
+from .reply_policy import (
+    bound_reply,
+    generation_options,
+    turn_guidance,
+    unavailable_fact_reply,
+)
 from .schemas import Config, ConfigRequest, Strict, Voice
 from .store import dumps, uid
 
@@ -242,6 +247,21 @@ async def debug_turn(body: DebugTurn, request: Request, user=Depends(principal))
         re.search(r"(?:编|讲).*故事|原创故事|(?:make|tell).*story", body.text, re.I)
     )
     kinds = ["daily"]
+    unavailable = unavailable_fact_reply(body.text) if not story else None
+    if unavailable:
+        return {
+            "text": unavailable,
+            "recordId": record_turn(
+                request.app.state.store,
+                user,
+                body.sessionId,
+                body.text,
+                unavailable,
+                "debug",
+            ),
+            "configVersion": version,
+            "draft": body.prompts is not None,
+        }
     if body.promptKind != "daily":
         kinds.append(body.promptKind)
     elif story:
