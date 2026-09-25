@@ -22,7 +22,7 @@ class ReadingNavigationTest {
     @Test fun onlyUnlabelledBooksUseAnnouncedStoredOrder() {
         val pages=listOf(segment("p1"),segment("p1"),segment("p2"))
         val result=ReadingNavigation.locate(ReadingNavigation.Command.Page("2"),pages) as ReadingNavigation.Location.Found
-        assertEquals(2,result.index);assertTrue(result.notice.contains("录入顺序"))
+        assertEquals(2,result.index);assertTrue(result.notice.contains("当前书页顺序"))
         assertTrue(ReadingNavigation.locate(ReadingNavigation.Command.Page("4"),pages) is ReadingNavigation.Location.Unavailable)
     }
     @Test fun duplicateLabelsRequireChapter() {

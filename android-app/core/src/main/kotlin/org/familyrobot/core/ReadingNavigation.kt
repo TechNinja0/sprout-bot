@@ -65,7 +65,7 @@ object ReadingNavigation {
         val scoped=pages.filter { command.chapter==null || chapterMatches(segments[it].chapter,command.chapter) }
         val requested=number(command.label) ?: return Location.Unavailable("没有识别到页码，请再说一次。")
         if(pages.all { segments[it].label.isBlank() } && command.chapter==null) {
-            return scoped.getOrNull(requested-1)?.let { Location.Found(it,"这本书没有标注原书页码，我按录入顺序读第${requested}页。") }
+            return scoped.getOrNull(requested-1)?.let { Location.Found(it,"这本书没有标注原书页码，我按当前书页顺序读第${requested}页。") }
                 ?: Location.Unavailable("录入的内容没有这么多页。")
         }
         val matches=scoped.filter { labelNumber(segments[it].label,"页")==requested }

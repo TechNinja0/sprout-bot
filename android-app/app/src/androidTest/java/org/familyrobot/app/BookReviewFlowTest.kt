@@ -70,12 +70,12 @@ class BookReviewFlowTest {
                 val rid=resource.getString("id");fun detail()=api.json("/v1/resources/$rid")
                 try{ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java)).use{
                     await("家长首页"){device.hasObject(By.text("家长管理"))};tap("资源库");tap(title);tap("编辑工作草稿");tap("2 校对")
-                    find("0 / 2 页已校对");capture("$theme-list");tap("录入位置 1 · 无印刷页码")
+                    find("0 / 2 页已校对");capture("$theme-list");tap("朗读顺序 1 · 无印刷页码")
                     find("准备朗读的正文");assertFalse(device.hasObject(By.text("重新识别本页")));capture("$theme-page")
                     tap("源稿对照");find("本页来自文本或手工录入，没有源图。");tap("源稿对照")
                     tap("试听本页");await("完整本页试听"){device.hasObject(By.textContains("本页试听完成"))}
                     assertEquals("draft",detail().getString("status"));assertFalse(detail().getJSONObject("draft").getJSONArray("pages").getJSONObject(0).optBoolean("reviewed"))
-                    tap("保存并确认本页");await("跳到下一页"){device.hasObject(By.textContains("录入位置 2 / 2"))}
+                    tap("保存并确认本页");await("跳到下一页"){device.hasObject(By.textContains("朗读顺序 2 / 2"))}
                     assertFalse(find("保存并确认本页").parent.isEnabled)
                     check("本页不朗读");tap("保存并确认本页");await("全部完成转到发布"){device.hasObject(By.text("试听与发布"))&&device.hasObject(By.text("校对进度"))}
                     find("2 / 2 页");capture("$theme-publish-top")
@@ -92,8 +92,8 @@ class BookReviewFlowTest {
                     check("已试听并确认声音（可选）");check("已核对完整 / 节选范围")
                     tap("发布给机器人");await("发布固定版本"){detail().getString("status")=="published"}
                     val published=detail();assertFalse(published.isNull("published_id"));assertEquals("家庭选读第一章",published.getJSONObject("draft").getString("excerpt"));capture("$theme-published")
-                    find("资源详情");tap("编辑工作草稿");tap("2 校对");tap("录入位置 1 · 无印刷页码");edit("准备朗读的正文","更正后的正文。")
-                    find("录入位置 1 / 2 · 待校对");tap("保存，稍后校对")
+                    find("资源详情");tap("编辑工作草稿");tap("2 校对");tap("朗读顺序 1 · 无印刷页码");edit("准备朗读的正文","更正后的正文。")
+                    find("朗读顺序 1 / 2 · 待校对");tap("保存，稍后校对")
                     await("保存修改撤销校对"){!detail().getJSONObject("draft").getJSONArray("pages").getJSONObject(0).getBoolean("reviewed")}
                     assertEquals(published.getString("published_id"),detail().getString("published_id"))
                 }}finally{api.json("/v1/resources/$rid","DELETE")}

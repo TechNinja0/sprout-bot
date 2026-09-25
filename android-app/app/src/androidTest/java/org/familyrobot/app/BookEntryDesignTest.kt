@@ -107,10 +107,10 @@ class BookEntryDesignTest {
                 await("音频导入完成"){draft().optString("audioAsset").isNotEmpty()&&device.hasObject(By.textContains("录入完成"))}
                 find("试听已上传原音频");device.pressBack();find("音频已录入 · 可替换")
                 tap("录入正文");tap("手工添加文字页");find("准备朗读的正文");capture("$theme-manual")
-                device.pressBack();find("录入位置 2 · 无印刷页码")
+                device.pressBack();find("朗读顺序 2 · 无印刷页码")
                 tap("保存草稿");await("保存两页"){draft().getJSONArray("pages").length()==2}
                 tap("1 录入");find("图书工作草稿");capture("$theme-entry-imported")
-                tap("下一步：逐页校对");find("录入位置 1 · 无印刷页码");capture("$theme-review")
+                tap("下一步：逐页校对");find("朗读顺序 1 · 无印刷页码");capture("$theme-review")
                 tap("3 试听与发布");find("校对进度");find("去校对");assertFalse(find("发布给机器人").parent.isEnabled)
             }}finally{api.json("/v1/resources/$rid","DELETE")}
         };assertEquals(6,picks)}finally{inst.removeMonitor(monitor)}

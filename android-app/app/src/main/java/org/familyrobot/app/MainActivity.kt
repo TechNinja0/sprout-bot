@@ -25,6 +25,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -520,6 +523,17 @@ class MainActivity:ComponentActivity() {
         var editorRoute by rememberSaveable{mutableStateOf("main")};var editorHistory by rememberSaveable{mutableStateOf(listOf<String>())}
         fun invalidateAudition(){auditionConfirmed=false;scopeConfirmed=false;lastPreviewedDraft="";item?.getJSONObject("draft")?.put("auditioned",false)}
         fun draftChanged(){stopPreview();invalidateAudition();item=item?.let{JSONObject(it.toString())}}
+        fun movePage(id:String,targetId:String){
+            val draft=item?.getJSONObject("draft")?:return
+            val pages=draft.getJSONArray("pages")
+            val selected=pages.optJSONObject(pageIndex)?.optString("id")
+            val auditioned=pages.optJSONObject(auditionPage)?.optString("id")
+            if(!moveBookPage(draft,id,targetId))return
+            val reordered=draft.getJSONArray("pages")
+            pageIndex=(0 until reordered.length()).firstOrNull{reordered.getJSONObject(it).optString("id")==selected}?:0
+            auditionPage=(0 until reordered.length()).firstOrNull{reordered.getJSONObject(it).optString("id")==auditioned}?:0
+            draftChanged()
+        }
         fun openEditor(route:String){stopPreview();if(route!=editorRoute){editorHistory=editorHistory+editorRoute;editorRoute=route};message=""}
         fun showReview(){stopPreview();stage=1;editingPage=false;editorRoute="main";editorHistory=emptyList();message=""}
         fun exitEditor(){stopPreview();if(item?.getJSONObject("draft")?.toString()!=savedDraft && item!=null)leaveEditor=true else back()}
@@ -675,12 +689,13 @@ class MainActivity:ComponentActivity() {
             pageIndex=pages.length()-1;stage=1;editingPage=true;editorRoute="main";editorHistory=emptyList();item=JSONObject(current.toString());message=""
         }
         val editorTitle=when(editorRoute){"cover"->"录入封面";"import"->"录入正文";"audio"->"导入已有音频";"jobs"->"本书导入任务";else->if(stage==1)if(editingPage)"校对本页" else "逐页校对" else if(stage==2)"试听与发布" else if(item?.optString("kind")=="book")"录入图书" else "编辑资源草稿"}
-        val editorScroll=remember(editorRoute,stage,editingPage,pageIndex){ScrollState(0)}
+        val editorScroll=remember(editorRoute,stage,editingPage,if(editingPage)pageIndex else -1){ScrollState(0)}
+        var reviewViewport by remember{mutableStateOf(Rect.Zero)}
         val currentDraft=item?.getJSONObject("draft")
         val publishReady=currentDraft?.let{bookReadyToPublish(item!!.getString("kind"),it)&&(it.optString("voiceSource","custom")=="shared"||it.getJSONObject("voice").optDouble("speed",1.0) in 0.7..1.3)}==true
         val auditionValid=currentDraft?.let{bookAuditionKey(it)==lastPreviewedDraft}==true
         val pageMessage=if(editorRoute=="main"&&(stage==2||stage==1&&editingPage)&&message.contains("试听"))"" else message
-        Page(editorTitle,pageMessage,busy,onBack={if(!busy)editorBack()},scroll=editorScroll,
+        Page(editorTitle,pageMessage,busy,onBack={if(!busy)editorBack()},scroll=editorScroll,onScrollViewport={reviewViewport=it},
             header={EditorSteps(stage,{stopPreview();stage=it;editingPage=false;editorRoute="main";editorHistory=emptyList();message=""},!busy&&!previewing)},
             bottom={if(editorRoute=="main"){
                 when(stage){
@@ -753,15 +768,18 @@ class MainActivity:ComponentActivity() {
                     val reviewed=(0 until pages.length()).count{pages.getJSONObject(it).optBoolean("reviewed")}
                     if(!editingPage){
                         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("$reviewed / ${pages.length()} 页已校对",Modifier.weight(1f));TextButton(onClick={stage=0;openEditor("import")}){Text("补页")}}
-                        val warnings=current.optJSONArray("pageOrderWarnings")?:JSONArray()
-                        for(i in 0 until warnings.length())Text(warnings.getString(i),color=MaterialTheme.colorScheme.error)
-                        Text("逐页检查正文和读音；可随时保存，稍后继续。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        for(warning in bookPageOrderWarnings(pages))Text(warning,color=MaterialTheme.colorScheme.error)
+                        Text("列表从上到下就是朗读顺序。长按任一书页拖动调整，靠近上下边缘可继续滚动；轻点进入校对。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("印刷页码仅用于对照原书，修改页码不会自动排序。调整后请保存草稿；已发布图书需重新发布后生效。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(draft.optString("audioAsset").isNotBlank())Text("本书使用整段原录音，调整书页顺序不会重排录音内容。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         if(pages.length()==0)EmptyState("还没有录入书页","先补页，或为无字绘本编写讲述稿。")
-                        else DesignGroup{for(i in 0 until pages.length()){val p=pages.getJSONObject(i);DesignRow("录入位置 ${i+1} · ${p.optString("label").ifBlank{"无印刷页码"}}","${if(p.optBoolean("reviewed"))"已校对" else "待校对"}${if(p.optBoolean("skip"))" · 不朗读" else ""} · ${p.optString("text").take(25)}",icon=if(p.optBoolean("reviewed"))"check" else "book",divider=i<pages.length()-1){stopPreview();pageIndex=i;source=null;editingPage=true}}}
+                        else DesignGroup{BookPageOrderList(pages,editorScroll,reviewViewport,!busy&&!previewing&&!importing,
+                            onMove={id,target->movePage(id,target)},
+                            onOpen={id->stopPreview();pageIndex=(0 until pages.length()).first{pages.getJSONObject(it).getString("id")==id};source=null;editingPage=true})}
                     }else if(pages.length()>0){
                         pageIndex=pageIndex.coerceIn(0,pages.length()-1);val page=pages.getJSONObject(pageIndex)
                         fun changed(){page.put("reviewed",false);draftChanged()}
-                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("录入位置 ${pageIndex+1} / ${pages.length()} · ${if(page.optBoolean("reviewed"))"已校对" else "待校对"}",Modifier.weight(1f),fontSize=13.sp);TextButton(onClick={stopPreview();editingPage=false}){Text("书页列表")}}
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("朗读顺序 ${pageIndex+1} / ${pages.length()} · ${if(page.optBoolean("reviewed"))"已校对" else "待校对"}",Modifier.weight(1f),fontSize=13.sp);TextButton(onClick={stopPreview();editingPage=false}){Text("书页列表")}}
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){TextButton(enabled=pageIndex>0&&!previewing,onClick={pageIndex--;source=null}){Text("上一页")};TextButton(enabled=pageIndex<pages.length()-1&&!previewing,onClick={pageIndex++;source=null}){Text("下一页")}}
                         key(page.optString("id")){
                             DetailDisclosure("源稿对照"){
@@ -775,6 +793,7 @@ class MainActivity:ComponentActivity() {
                                 Column(Modifier.weight(1f)){FormField("印刷页码（可空）",page.optString("label")){page.put("label",it);changed()}}
                                 Column(Modifier.weight(1f)){FormField("章节（可空）",page.optString("chapter")){page.put("chapter",it);changed()}}
                             }
+                            Text("印刷页码只作原书标记，不改变朗读顺序；可返回书页列表长按拖动调整。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             FormField("准备朗读的正文",page.optString("text"),5){page.put("text",it);changed()}
                             val names=mapOf("BLANK" to "未识别到正文，请核对是否空白页","DUPLICATE" to "与其他页正文相同，请检查是否重复","LOW_CONFIDENCE" to "部分文字识别置信度较低","OCR_FAILED" to "识别失败，可重试或重拍")
                             val warnings=page.optJSONArray("qualityWarnings")?:JSONArray()
@@ -803,7 +822,7 @@ class MainActivity:ComponentActivity() {
                             }
                             DetailDisclosure("页序与删除"){
                                 Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                                    for((delta,label)in listOf(-1 to "向前移动",1 to "向后移动"))FullAction(label,secondary=true,enabled=pageIndex+delta in 0 until pages.length()&&!previewing){val list=(0 until pages.length()).map{pages.getJSONObject(it)}.toMutableList();java.util.Collections.swap(list,pageIndex,pageIndex+delta);draft.put("pages",JSONArray(list));pageIndex+=delta;draftChanged()}
+                                    for((delta,label)in listOf(-1 to "向前移动",1 to "向后移动"))FullAction(label,secondary=true,enabled=pageIndex+delta in 0 until pages.length()&&!previewing){movePage(page.getString("id"),pages.getJSONObject(pageIndex+delta).getString("id"))}
                                     TextButton(onClick={stopPreview();pageToDelete=page.getString("id")}){Text("删除本页",color=MaterialTheme.colorScheme.error)}
                                 }
                             }
@@ -879,7 +898,7 @@ class MainActivity:ComponentActivity() {
     }
 }
 
-@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,header:(@Composable ()->Unit)?=null,scroll:ScrollState?=null,content:@Composable ColumnScope.()->Unit) {
+@Composable fun Page(title:String,message:String,busy:Boolean,onBack:(()->Unit)?=null,bottom:(@Composable ()->Unit)?=null,header:(@Composable ()->Unit)?=null,scroll:ScrollState?=null,onScrollViewport:((Rect)->Unit)?=null,content:@Composable ColumnScope.()->Unit) {
     val pageScroll=scroll ?: remember(title){ScrollState(0)}
     Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal)).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start=16.dp,end=20.dp,top=9.dp,bottom=18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -889,7 +908,7 @@ class MainActivity:ComponentActivity() {
         }
         header?.let{Box(Modifier.padding(start=20.dp,end=20.dp,bottom=18.dp)){it()}}
         if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
-        Column(Modifier.weight(1f).verticalScroll(pageScroll).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f).onGloballyPositioned{onScrollViewport?.invoke(it.boundsInRoot())}.verticalScroll(pageScroll).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             if(message.isNotEmpty())Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant){Text(message,Modifier.padding(14.dp),fontSize=13.sp)}
             content();Spacer(Modifier.height(24.dp))
         }

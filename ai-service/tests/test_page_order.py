@@ -1,4 +1,91 @@
+import json
+
+import pytest
 from robot_service.library import page_order_warnings
+from test_library import make_book, publish
+
+
+@pytest.mark.parametrize("mode", ["follow_pages", "continuous"])
+def test_saved_order_controls_preview_and_publication_not_printed_labels(system, mode):
+    c, store, _, rh, _, ph = system
+    book = make_book(c, ph)
+    rid = book["id"]
+    draft = book["draft"]
+    draft["readingMode"] = mode
+    draft["pages"] = [
+        {"id": "three", "label": "3", "text": "第三页。", "reviewed": True},
+        {"id": "one", "label": "1", "text": "第一页。", "reviewed": True},
+        {"id": "blank", "label": "版权页", "text": "", "skip": True, "reviewed": True},
+        {"id": "two", "label": "2", "text": "第二页。", "reviewed": True},
+    ]
+
+    def save(current):
+        response = c.put(
+            f"/v1/resources/{rid}",
+            headers=ph,
+            json={
+                "expectedVersion": current["draft_version"],
+                "draft": current["draft"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def page_ids(body):
+        return [part["pageId"] for part in body["segments"]]
+
+    def preview(current):
+        response = c.get(
+            f"/v1/resources/{rid}/speech-plan",
+            headers=ph,
+            params={"expectedVersion": current["draft_version"]},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    book = save(book)
+    assert page_ids(preview(book)) == ["three", "one", "two"]
+    original_revision = publish(c, ph, book).json()["revisionId"]
+    original = c.get(f"/v1/resources/{rid}/manifest", headers=rh).json()
+    assert page_ids(original) == ["three", "one", "two"]
+
+    # Merely editing printed labels must never silently move book pages.
+    book["draft"]["pages"][0]["label"] = "第 30 页"
+    book = save(book)
+    assert page_ids(preview(book)) == ["three", "one", "two"]
+    before = {p["id"]: p for p in book["draft"]["pages"]}
+    book["draft"]["pages"] = [before[i] for i in ["blank", "one", "two", "three"]]
+    book["draft"]["auditioned"] = True
+    book = save(book)
+    assert book["draft"]["auditioned"] is False
+    reloaded = c.get(f"/v1/resources/{rid}", headers=ph).json()
+    assert [p["id"] for p in reloaded["draft"]["pages"]] == [
+        "blank",
+        "one",
+        "two",
+        "three",
+    ]
+    assert {p["id"]: p for p in reloaded["draft"]["pages"]} == before
+    assert page_ids(preview(book)) == ["one", "two", "three"]
+    assert c.get(f"/v1/resources/{rid}/manifest", headers=rh).json() == original
+
+    response = publish(c, ph, book)
+    assert response.status_code == 200, response.text
+    revision = response.json()["revisionId"]
+    assert revision != original_revision
+    new = c.get(f"/v1/resources/{rid}/manifest", headers=rh).json()
+    assert page_ids(new) == ["one", "two", "three"]
+    assert new["segments"] == preview(book)["segments"]
+    old = c.get(
+        f"/v1/resources/{rid}/manifest",
+        headers=rh,
+        params={"revisionId": original_revision},
+    ).json()
+    assert page_ids(old) == ["three", "one", "two"]
+    snapshot = json.loads(
+        store.one("SELECT body FROM revisions WHERE id=?", (revision,))["body"]
+    )
+    assert snapshot["pages"] == reloaded["draft"]["pages"]
 
 
 def test_numeric_printed_gaps_and_repeated_order_are_advisory():

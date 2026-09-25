@@ -101,7 +101,7 @@ class BookImportUiTest {
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertTrue(pages.getJSONObject(3).getString("text").contains("Picker page 1"));assertTrue(pages.getJSONObject(4).getString("text").contains("Picker page 2"))
             assertEquals(1,pickerCount.get());record("picker-fixture-two-pages")
-            find("2 校对").click();find("录入位置 2 · 无印刷页码").click();find("重新识别与替换").click();find("重新识别本页").click()
+            find("2 校对").click();find("朗读顺序 2 · 无印刷页码").click();find("重新识别与替换").click();find("重新识别本页").click()
             waitFor("单页重识别完成") { device.hasObject(By.textContains("本页识别：needs_review")) }
             pages=book().getJSONObject("draft").getJSONArray("pages")
             assertEquals(5,pages.length());assertTrue(pages.getJSONObject(0).getBoolean("reviewed"))
