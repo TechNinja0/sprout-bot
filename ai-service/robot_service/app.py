@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from .app_release import router as app_release_router
 from .audio_preparation import AudioPreparation
 from .audio_preparation import router as audio_preparation_router
 from .auth import router as auth_router
@@ -144,6 +145,7 @@ def create_app(root: Path | str = "runtime"):
     app.include_router(knowledge_router)
     app.include_router(intelligence_router)
     app.include_router(auth_router)
+    app.include_router(app_release_router)
     app.include_router(setup_router)
     app.include_router(companion_router)
     app.include_router(library_router)

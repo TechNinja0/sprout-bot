@@ -261,6 +261,25 @@ class MainActivity:ComponentActivity() {
         var editing by remember { mutableStateOf(false) }
         var savedConfig by remember{mutableStateOf("")};var pendingTab by remember{mutableStateOf<String?>(null)};var reloadParent by remember{mutableStateOf(false)};var revokeParent by remember{mutableStateOf(false)}
         val rid=connection.getString("robotId")
+        var updateInfo by remember{mutableStateOf<AppUpdateInfo?>(null)};var updatePrompt by remember{mutableStateOf(false)}
+        var updating by remember{mutableStateOf(false)};var updateProgress by remember{mutableStateOf(-1)}
+        // 每次进入家长端静默检查一次升级；失败不打扰。伙伴端无任何升级提示。
+        LaunchedEffect(Unit) { try { AppUpdater.check(api)?.let { updateInfo=it;updatePrompt=true } } catch(_:Exception) {} }
+        fun startUpdate() {
+            val info=updateInfo ?: return
+            if(updating)return
+            updating=true;updateProgress=-1
+            scope.launch {
+                try {
+                    val file=AppUpdater.download(this@MainActivity,api,info) { done,total->
+                        updateProgress=if(total>0)(done*100/total).toInt() else -1
+                    }
+                    updating=false;updatePrompt=false
+                    if(!AppUpdater.install(this@MainActivity,file))message="升级包已下载；允许安装未知应用后，可在检查更新中重试安装"
+                } catch(e:CancellationException) { updating=false;throw e }
+                catch(e:Exception) { updating=false;message="升级下载失败："+(e.message ?: e.javaClass.simpleName) }
+            }
+        }
         var routeHistory by rememberSaveable{mutableStateOf(listOf<String>())};var pendingBack by remember{mutableStateOf(false)}
         fun performSelect(name:String,backwards:Boolean=false) {
             routeHistory=if(name in listOf("首页","设置","记录"))emptyList() else if(backwards)routeHistory.dropLast(1) else if(name!=tab)routeHistory+tab else routeHistory
@@ -285,12 +304,18 @@ class MainActivity:ComponentActivity() {
             result.optJSONObject("models")?.let { models=it }
             result.optJSONObject("configuration")?.let { config=it.getJSONObject("config");version=it.getInt("version");savedConfig=config.toString() }
             }
-        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","连接","唤醒与互动","AI 提示词","知识库")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
+        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","连接","唤醒与互动","AI 提示词","知识库","检查更新")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
         pendingTab?.let{target->AlertDialog(onDismissRequest={pendingTab=null},title={Text("有未保存修改")},text={Text("离开会放弃当前修改。可以继续编辑并保存后再离开。")},confirmButton={TextButton(onClick={pendingTab=null;performSelect(target,pendingBack)}){Text("放弃并离开")}},dismissButton={TextButton(onClick={pendingTab=null}){Text("继续编辑")}})}
         if(reloadParent)AlertDialog(onDismissRequest={reloadParent=false},title={Text("重新读取设置？")},text={Text("当前未保存的修改将被已生效配置替换。")},confirmButton={TextButton(onClick={reloadParent=false;run{refresh()}}){Text("重新读取")}},dismissButton={TextButton(onClick={reloadParent=false}){Text("保留修改")}})
         if(revokeParent)AlertDialog(onDismissRequest={revokeParent=false},title={Text("解除本手机绑定？")},text={Text("解除后需要在机器人上重新生成配对二维码才能恢复管理。")},confirmButton={TextButton(onClick={revokeParent=false;run{withContext(Dispatchers.IO){api.json("/v1/devices/${connection.getString("deviceId")}","DELETE")};vault.remove("parent");disconnect()}}){Text("解除绑定")}},dismissButton={TextButton(onClick={revokeParent=false}){Text("取消")}})
+        if(updatePrompt && updateInfo!=null)AlertDialog(onDismissRequest={ if(!updating)updatePrompt=false },title={Text("发现新版本")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("新版本 ${updateInfo!!.versionName}（当前 ${BuildConfig.VERSION_NAME}）")
+            if(updateInfo!!.sizeBytes>0)Text("安装包约 ${updateInfo!!.sizeBytes/1048576} MB",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(updateInfo!!.notes.isNotBlank())Text(updateInfo!!.notes,fontSize=13.sp)
+            if(updating)Text(if(updateProgress>=0)"正在下载 ${updateProgress}%…" else "正在下载…",color=MaterialTheme.colorScheme.primary)
+        }},confirmButton={TextButton(enabled=!updating,onClick={startUpdate()}){Text(if(updating)"下载中…" else "立即升级")}},dismissButton={TextButton(enabled=!updating,onClick={updatePrompt=false;message="已取消本次升级，可稍后在设置中检查更新"}){Text("暂不升级")}})
         if(selected!=null) { if(editing)ResourceEditor(api,selected!!,rid) { editing=false } else ResourceOverview(api,selected!!,rid,{editing=true},{selected=null});return }
-        fun back(){selectTab(routeHistory.lastOrNull() ?: if(tab in listOf("成长","声音","隐私","记忆","摘要","维护","备份","绑定","唤醒与互动","AI 提示词","记录保存","主题颜色","调试","本机身份"))"设置" else "首页",true)}
+        fun back(){selectTab(routeHistory.lastOrNull() ?: if(tab in listOf("成长","声音","隐私","记忆","摘要","维护","备份","绑定","唤醒与互动","AI 提示词","记录保存","主题颜色","调试","本机身份","检查更新"))"设置" else "首页",true)}
         BackHandler(enabled=tab!="首页"){back()}
         if(tab=="知识库"){KnowledgeScreen(connection){back()};return}
         if(tab=="主题颜色"){AppearancePage(themeMode,::chooseTheme){back()};return}
@@ -339,6 +364,7 @@ class MainActivity:ComponentActivity() {
                         DesignRow("诊断与服务能力","分项状态与脱敏报告"){selectTab("维护")}
                         DesignRow("检查与调试","文字、语音与回复回放",icon="chat"){selectTab("调试")}
                         DesignRow("绑定与恢复","管理家长手机、找回 PIN"){selectTab("绑定")}
+                        DesignRow("检查更新","当前 ${BuildConfig.VERSION_NAME} · 升级与安装",icon="download"){selectTab("检查更新")}
                         DesignRow("本机身份","切换已授权身份或解除绑定",icon="bot",divider=false){selectTab("本机身份")}
                     }
                 }
@@ -363,6 +389,26 @@ class MainActivity:ComponentActivity() {
                         }
                     }
                     FullAction("连接其他家庭服务",secondary=true){disconnect()}
+                }
+                "检查更新" -> {
+                    Text("升级包由家庭电脑构建后自动发布；只在家长端检查和安装，小伙伴端不受打扰。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    SectionHeading("本机信息")
+                    InfoRow("当前身份","家长");InfoRow("当前版本",BuildConfig.VERSION_NAME)
+                    updateInfo?.let { info->
+                        SectionHeading("可用新版本")
+                        DesignGroup{Column(Modifier.padding(15.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                            Text("新版本 ${info.versionName}")
+                            if(info.notes.isNotBlank())Text(info.notes,fontSize=13.sp)
+                            Text("安装包约 ${info.sizeBytes/1048576} MB · 经家庭服务加密通道下载并校验",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }}
+                        if(updating)Text(if(updateProgress>=0)"正在下载 ${updateProgress}%…" else "正在下载…",color=MaterialTheme.colorScheme.primary)
+                        FullAction(if(updating)"下载中…" else "下载并安装新版本",enabled=!updating){startUpdate()}
+                    }
+                    FullAction(if(updateInfo==null)"检查更新" else "重新检查更新",secondary=true,enabled=!busy&&!updating){run{
+                        val found=AppUpdater.check(api)
+                        if(found==null) { updateInfo=null;message="已是最新版本" } else { updateInfo=found;updatePrompt=true }
+                    }}
+                    Text("首次安装或扫码下载请使用家庭电脑上的下载官网；家长端升级使用已配对的加密通道。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 "资源库" -> {

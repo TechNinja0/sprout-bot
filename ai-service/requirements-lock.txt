@@ -35,6 +35,7 @@ pypinyin==0.55.0
 pytest==9.1.1
 python-multipart==0.0.32
 PyYAML==6.0.3
+qrcode==8.2
 ruff==0.16.8
 sherpa-onnx-core==1.13.8
 sherpa_onnx==1.13.8

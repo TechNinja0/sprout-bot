@@ -1,4 +1,14 @@
+import java.util.Properties
+
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
+
+// 正式签名材料存放在 runtime/android-signing/（随仓库维护）；缺失时仅在构建正式版时报错提醒。
+val signingProps = Properties().apply {
+    val file = rootProject.file("../runtime/android-signing/keystore.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+val releaseKeystore = signingProps.getProperty("storeFile")?.let { rootProject.file(it) }?.takeIf { it.isFile }
+
 android {
     namespace = "org.familyrobot.app"
     compileSdk = 36
@@ -6,10 +16,25 @@ android {
         applicationId = "org.familyrobot.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = 2
+        versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    }
+    signingConfigs {
+        releaseKeystore?.let { store ->
+            create("release") {
+                storeFile = store
+                storePassword = signingProps.getProperty("storePassword")
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = signingProps.getProperty("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

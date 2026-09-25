@@ -9,6 +9,7 @@ import kotlin.coroutines.resumeWithException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -94,6 +95,62 @@ class Api(val connection:JSONObject) {
                             data
                         }
                         if(continuation.isActive)continuation.resume(bytes)
+                    } catch(error:Exception) {
+                        if(continuation.isActive)continuation.resumeWithException(error)
+                    }
+                }
+            })
+        }
+    }
+    /** 大文件流式下载（应用升级包）：写入临时文件、校验 X-Content-SHA256 后原子替换；支持协程取消。 */
+    suspend fun download(path:String,target:File,onProgress:(Long,Long)->Unit={_,_->}) {
+        withContext(Dispatchers.IO) {
+            synchronized(identityLock) {
+                val now=android.os.SystemClock.elapsedRealtime()
+                if(identityCheckedAt==Long.MIN_VALUE || now-identityCheckedAt>=15000)checkIdentity()
+            }
+        }
+        return suspendCancellableCoroutine { continuation ->
+            val builder=Request.Builder().url(address+path)
+            connection.optString("token").takeIf { it.isNotEmpty() }?.let { builder.header("Authorization","Bearer $it") }
+            val call=client.newCall(builder.build())
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object:Callback {
+                override fun onFailure(call:Call,e:IOException) {
+                    if(continuation.isActive)continuation.resumeWithException(e)
+                }
+                override fun onResponse(call:Call,response:Response) {
+                    try {
+                        response.use { resp ->
+                            if(!resp.isSuccessful) {
+                                val data=resp.body?.bytes() ?: byteArrayOf()
+                                val reason=runCatching { JSONObject(String(data)).optString("detail") }.getOrDefault("")
+                                throw ApiHttpException(resp.code,"${resp.code}：${reason.take(160)}")
+                            }
+                            val body=resp.body ?: throw IOException("空响应")
+                            val expected=resp.header("X-Content-SHA256")?.lowercase()
+                            val digest=MessageDigest.getInstance("SHA-256")
+                            target.parentFile?.mkdirs()
+                            val staged=File(target.absolutePath+".partial")
+                            try {
+                                java.io.FileOutputStream(staged).use { out ->
+                                    val input=body.byteStream()
+                                    val buffer=ByteArray(64*1024)
+                                    val total=body.contentLength()
+                                    var done=0L
+                                    while(true) {
+                                        val count=input.read(buffer)
+                                        if(count<0)break
+                                        out.write(buffer,0,count);digest.update(buffer,0,count);done+=count
+                                        onProgress(done,total)
+                                    }
+                                }
+                                val actual=digest.digest().joinToString("") { "%02x".format(it) }
+                                if(expected!=null && expected!=actual)throw IOException("升级包完整性校验失败")
+                                if(!staged.renameTo(target)) { target.delete();check(staged.renameTo(target)) { "保存升级包失败" } }
+                            } catch(e:Exception) { staged.delete();throw e }
+                        }
+                        if(continuation.isActive)continuation.resume(Unit)
                     } catch(error:Exception) {
                         if(continuation.isActive)continuation.resumeWithException(error)
                     }

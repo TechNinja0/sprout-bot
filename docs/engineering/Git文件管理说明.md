@@ -9,19 +9,20 @@
 - Markdown 文档、原创表情图、HTML 预览和第三方许可声明。
 - Gradle Wrapper 脚本、配置与 `gradle-wrapper.jar`，用于固定构建工具版本。
 - Android 内置提示音及其 `provenance.json`，用于启动和离线反馈；这些是项目合成资源，不是家庭录音。
+- Android 正式签名材料（`runtime/android-signing/`）：供家庭构建、升级与迁移使用，随仓库同步维护。
 - GitHub Actions 和协作模板。
 
 ## 仅保留在本地
 
 | 类别 | 目录或文件 | 恢复或维护方式 |
 | --- | --- | --- |
-| 家庭数据与模型 | `runtime/`、`models/` | 家庭数据独立备份；模型按锁定清单安装 |
+| 家庭数据、模型与其余运行文件 | `runtime/`（`android-signing/` 除外）、`models/` | 家庭数据独立备份；模型按锁定清单安装 |
 | 验证产物与临时资料 | `.artifacts/`、`ui-audit/artifacts/` | 按需重新执行验证；原始证据本地保管 |
 | Python 环境与缓存 | `.venv/`、`.venv-*/`、`__pycache__/`、测试缓存 | 运行安装脚本重建 |
 | 构建输出 | `build/`、`dist/`、`.gradle/`、APK、AAB | 重新构建 |
 | Android 外部依赖 | AAR、`android-app/app/src/main/assets/models/` | `python3 scripts/install_models.py --only kws,vad,aar` |
 | 本地 OCR 程序 | `ai-service/native/ocr` | 安装服务时由 `ocr.swift` 编译 |
-| 本机配置与敏感文件 | `local.properties`、`.env*`、证书私钥、签名文件、数据库、日志 | 各部署环境独立配置；无凭据的 `.env.example` 可提交 |
+| 本机配置与敏感文件 | `local.properties`、`.env*`、TLS 私钥、恢复凭据、数据库、日志 | 各部署环境独立配置；无凭据的 `.env.example` 可提交 |
 | 文档导出件与历史包 | `docs/` 下的 DOCX、XLSX、PDF、ZIP | 本地归档，不作为公开文档来源；当前说明阅读 Markdown |
 | 编辑器与系统状态 | `.idea/`、`.vscode/`、`.DS_Store` | 本机自行生成 |
 

@@ -9,7 +9,7 @@ start_services() {
     if ! launchctl print "$ROBOT_DOMAIN/$label" >/dev/null 2>&1; then
       plist="$HOME/Library/LaunchAgents/$label.plist"
       if [[ ! -f "$plist" ]]; then
-        echo "缺少 $plist；本机尚未配置后台托管，可用 run_home_service.sh 前台启动。" >&2
+        echo "缺少 ${plist}；本机尚未配置后台托管，可用 run_home_service.sh 前台启动。" >&2
         exit 1
       fi
       launchctl bootstrap "$ROBOT_DOMAIN" "$plist"

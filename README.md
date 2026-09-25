@@ -29,13 +29,13 @@
 - `third_party/`：第三方许可证；不包含模型权重或依赖二进制。
 - `.github/`：持续集成与协作模板。
 
-本地的 `runtime/`、`.artifacts/`、虚拟环境、模型、构建产物和凭据均由 `.gitignore` 排除，不随源码上传。具体边界见 [Git 文件管理说明](docs/engineering/Git文件管理说明.md)。
+本地的 `runtime/` 运行数据、`.artifacts/`、虚拟环境、模型、构建产物和家庭凭据均由 `.gitignore` 排除，不随源码上传；Android 正式签名材料（`runtime/android-signing/`）随仓库维护，供家庭构建与迁移使用。具体边界见 [Git 文件管理说明](docs/engineering/Git文件管理说明.md)。
 
 ## 开发中的可运行工程
 
 Apple Silicon Mac 服务端可在项目根目录运行 `bash scripts/setup_mac.sh` 一键检查、安装环境和模型并启动服务；之后用 `bash scripts/setup_mac.sh --check` 只读复查。无需 Android 开发环境，首次系统工具安装可能需要交互确认，详见 [Mac 服务端一键部署](docs/engineering/Mac服务端一键部署.md)。
 
-已开始 `0.1.0-dev` 实现：`android-app/` 单APK、`ai-service/` 本地服务与模型、`motion-firmware/` 运动安全核心。当前不是正式儿童产品发行版；真实儿童、实体图书与长时稳定性验收单独记录，不能用自动化测试替代。
+已发布 `0.1.0` 首个正式签名版（家庭局域网内部分发）：`android-app/` 单APK、`ai-service/` 本地服务与模型、`motion-firmware/` 运动安全核心。当前不是面向公众的儿童产品发行版；真实儿童、实体图书与长时稳定性验收单独记录，不能用自动化测试替代。
 
 - [工程维护手册](docs/engineering/工程维护手册.md)：搭建、模型安装、连接、分工、备份恢复、升级回滚与排障。
 - [图书录入与阅读实现说明](docs/engineering/图书录入与阅读实现说明.md)：连续拍照、多图和电脑目录录入、单页纠错、口头选书及同版续读，含接口与schema2升级说明。

@@ -35,6 +35,7 @@ coverage.xml
 .gradle/
 .kotlin/
 local.properties
+keystore.properties
 *.apk
 *.aab
 *.aar
@@ -46,7 +47,7 @@ local.properties
 .env.*
 !.env.example
 !.env.*.example
-runtime/
+runtime/*
 models/
 secrets/
 credentials/
@@ -75,3 +76,8 @@ credentials/
 /docs/**/*.xlsx
 /docs/**/*.pdf
 /docs/**/*.zip
+
+# Android 正式签名材料随代码仓库维护（家庭构建与迁移；放行 runtime/ 与通用密钥规则）
+!runtime/android-signing/
+!runtime/android-signing/release.jks
+!runtime/android-signing/keystore.properties
