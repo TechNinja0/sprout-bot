@@ -110,7 +110,8 @@ fun interactionFace(state:SessionState,media:Boolean=false,song:Boolean=false,vi
     state==SessionState.OPENING -> opening
     media -> if(song)"song" else "story"
     state==SessionState.SPEAKING -> "speaking"
-    state in setOf(SessionState.RECOGNIZING,SessionState.THINKING) -> if(vision)"vision" else "thinking"
+    state==SessionState.RECOGNIZING -> "recognizing"
+    state==SessionState.THINKING -> if(vision)"vision" else "thinking"
     voiceActive && state in setOf(SessionState.LISTENING,SessionState.FOLLOW_UP) -> "hearing"
     performance.isNotEmpty() && state in setOf(SessionState.STANDBY,SessionState.FOLLOW_UP,SessionState.LISTENING) -> performance
     state in setOf(SessionState.LISTENING,SessionState.FOLLOW_UP) -> "listening"

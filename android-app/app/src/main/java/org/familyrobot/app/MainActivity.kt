@@ -108,7 +108,7 @@ class MainActivity:ComponentActivity() {
             }
             BackHandler { if(manage) { manage=false;robot.resumeForeground() } }
             if(manage) RobotManagement(robot,{ manage=false;robot.resumeForeground() },{ change(it) })
-            else RobotFace(robot.faceMode,robot.mouth,robot.config.optBoolean("reducedMotion"),{ robot.pause() },{ robot.background();unlock=true },{ robot.touch() },interact={ robot.touch(it) },expressionIntensity=if(robot.config.optJSONObject("interaction")?.optString("expressionIntensity")=="normal")1f else .6f)
+            else RobotFace(robot.faceMode,robot.mouth,robot.config.optBoolean("reducedMotion"),{ robot.pause() },{ robot.background();unlock=true },{ robot.touch() },interact={ robot.touch(it) },expressionIntensity=if(robot.config.optJSONObject("interaction")?.optString("expressionIntensity")=="normal")1f else .6f,feedback=robot.faceFeedback)
         } else if(mode=="parent" && vault.get("parent")!=null) Parent(vault.get("parent")!!,{ change("setup") })
         else Setup { role -> change(role) }
         if(unlock)AlertDialog(onDismissRequest={ unlock=false;pin="";runtime?.resumeForeground() },title={ Text("家长管理") },text={ Column {

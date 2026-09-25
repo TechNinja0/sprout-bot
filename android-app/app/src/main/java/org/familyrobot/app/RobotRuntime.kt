@@ -34,6 +34,10 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
     var state by mutableStateOf(SessionState.STANDBY);private set
     var mouth by mutableFloatStateOf(0f);private set
     var faceMode by mutableStateOf("standby");private set
+    var faceFeedback by mutableStateOf(org.familyrobot.core.faceFeedback("standby"));private set
+    private val feedbackTracker=FaceFeedbackTracker()
+    private var pausedGeneration=Long.MIN_VALUE
+    private var replyIsStory=false
     private var performance=""
     private var performanceUntil=0L
     private var visionTask=false
@@ -210,14 +214,30 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
                 } finally { if(session.generation==ticket) { cameraWarningPlaying=false;input.feedbackPlaying=false;input.feedbackEndedAt=SystemClock.elapsedRealtime() } }
             }
         }
-        faceMode=when {
+        val outputPlaying=runCatching { track?.playState==AudioTrack.PLAYSTATE_PLAYING }.getOrDefault(false)
+        val presentationMode=when {
             cameraWarningPlaying -> "speaking"
             session.state==SessionState.BLOCKED && allowed==Permission.UNTRUSTED_TIME && !online -> "fault"
             session.state==SessionState.STANDBY && (!online || !has(Manifest.permission.RECORD_AUDIO)) -> "fault"
             session.state in setOf(SessionState.LISTENING,SessionState.FOLLOW_UP) && !input.recording -> "fault"
+            session.mediaPlaying && !outputPlaying -> "loading"
+            session.state==SessionState.SPEAKING && !session.mediaPlaying && !outputPlaying && job?.isActive==true -> "preparing"
+            session.state==SessionState.SPEAKING && !session.mediaPlaying && replyIsStory -> "story"
+            session.state==SessionState.FOLLOW_UP && pausedGeneration==session.generation && now>=voiceActiveUntil -> "paused"
             else -> interactionFace(session.state,session.mediaPlaying,session.activity==ActivityMode.SONG,visionTask,
                 if(performanceUntil>now)performance else "",openingFace,now<voiceActiveUntil)
         }
+        val playbackPosition=if(outputPlaying)runCatching { track?.let { (playbackSerial shl 32)+(it.playbackHeadPosition.toLong() and 0xffffffffL) } }.getOrNull() else null
+        faceFeedback=feedbackTracker.present(presentationMode,session.generation,now,playbackPosition).let { feedback ->
+            when {
+                thermal -> org.familyrobot.core.faceFeedback("blocked").copy(title="设备需要降温",detail="温度恢复后再来聊天")
+                feedback.signal==FaceSignal.ERROR && !feedbackTracker.hasFailure(session.generation) -> feedback.copy(
+                    title=if(!online)"家庭服务未连接" else "暂时听不到你",
+                    detail=if(!online)"请检查网络和家庭服务" else "请在家长管理中检查麦克风")
+                else -> feedback
+            }
+        }
+        faceMode=faceFeedback.mode
         state=session.state;cameraActive=session.camera && camera.fresh()!=null;micActive=input.recording
         if(allowed!=lastPolicy) { diagnostic="使用状态：$allowed";lastPolicy=allowed }
         if(thermal)diagnostic="设备温度较高，已暂停并释放相机/麦克风"
@@ -420,11 +440,12 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
     }
     fun stop() { cameraFailurePending=false;cameraFeedback.reset();input.cameraFeedbackPlaying=false;selfCheck.cancel(clearText=true);bookChoice=null;scheduledUntil=0;queue.clear();performanceUntil=0;visionTask=false;voiceActiveUntil=0;session.stop();cancelAudio();camera.setEnabled(false);mouth=0f;tick() }
     fun pause()=pause("local-control")
-    fun pause(reason:String) { bookChoice=null;lastPauseReason=reason;lastPauseStartedMs=SystemClock.elapsedRealtime();performanceUntil=0;visionTask=false;voiceActiveUntil=0;session.pause(SystemClock.elapsedRealtime());cancelAudio();tick();lastPauseFinishedMs=SystemClock.elapsedRealtime() }
+    fun pause(reason:String) { bookChoice=null;lastPauseReason=reason;lastPauseStartedMs=SystemClock.elapsedRealtime();performanceUntil=0;visionTask=false;voiceActiveUntil=0;session.pause(SystemClock.elapsedRealtime());pausedGeneration=session.generation;cancelAudio();if(reason.startsWith("focus-"))feedbackTracker.fail(session.generation,"声音被其他应用占用，请稍后再试");tick();lastPauseFinishedMs=SystemClock.elapsedRealtime() }
     fun touch()=touch(FaceTouch.TAP)
     fun touch(gesture:FaceTouch) {
         tick()
         if(!session.allowed || session.muted)return
+        if(feedbackTracker.hasFailure(session.generation)) { wakeFrom("touch",gesture);return }
         if(session.state==SessionState.STANDBY && !session.mediaPlaying) { wakeFrom("touch",gesture);return }
         val now=SystemClock.elapsedRealtime()
         if(session.state !in setOf(SessionState.LISTENING,SessionState.FOLLOW_UP) || voiceActiveUntil>now || now-lastTouchAt<5000 || !playful())return
@@ -433,6 +454,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         performanceUntil=now+1100;tick()
     }
     private fun cancelAudio() {
+        replyIsStory=false
         cameraWarningPlaying=false
         cameraFeedback.cancelPending();input.cameraFeedbackPlaying=false
         job?.cancel();job=null
@@ -451,7 +473,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         request=AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(attrs)
             .setOnAudioFocusChangeListener { change -> if(change<0)scope.launch { if(focus===request)pause("focus-loss") } }.build()
         val granted=manager.requestAudioFocus(request)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if(granted)focus=request else { focus=null;lastFeedbackResult="audio-focus-denied";diagnostic="声音未播放：其他应用占用音频焦点" }
+        if(granted)focus=request else { focus=null;lastFeedbackResult="audio-focus-denied";diagnostic="声音未播放：其他应用占用音频焦点";feedbackTracker.fail(session.generation,"声音被其他应用占用，请稍后再试") }
         return granted
     }
     private fun recognize(bytes:ByteArray)=recognizeCaptured(bytes,session.generation,false)
@@ -522,8 +544,13 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
                     else -> say(response.optString("text"),ticket,response.optBoolean("story",false))
                 }
             } catch(e:CancellationException) { throw e }
-            catch(_:Exception) { if(session.valid(ticket)) {
+            catch(error:Exception) { if(session.valid(ticket)) {
                 failure("turn");diagnostic="服务暂不可用；已取消本次回答"
+                feedbackTracker.fail(ticket,when {
+                    error is ApiHttpException && error.status==429 -> "服务正忙，轻触脸部后再试一次"
+                    error is java.net.SocketTimeoutException || error is ApiHttpException && error.status==504 -> "等待超时，轻触脸部后再试一次"
+                    else -> "回答中断了，轻触脸部后再试一次"
+                })
                 if(echo && wasFirst)session.discardOpeningEcho(ticket,waitingSince,userAt)
                 else { localPrompt("offline",ticket);session.playbackEnded(ticket,SystemClock.elapsedRealtime()) }
             } }
@@ -554,6 +581,8 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
     }
     private suspend fun say(text:String,ticket:Long,story:Boolean=false) {
         if(text.isBlank() || !session.valid(ticket))return
+        replyIsStory=story
+        session.speaking(ticket)
         val chunks=text.take(600).split(Regex("(?<=[。！？.!?])")).map { it.trim() }.filter { it.isNotEmpty() }
         coroutineScope {
             fun load(chunk:String)=async(Dispatchers.IO) { api.raw("/v1/speech/reply","POST",JSONObject().put("text",chunk).put("voice",config.optJSONObject("voice") ?: JSONObject()).put("story",story).toBody()) }
@@ -573,6 +602,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         if(!session.allowed || session.muted)return
         cancelAudio();queue.clear()
         if(!session.active)session.wake(SystemClock.elapsedRealtime(),false)
+        feedbackTracker.beginAttempt();session.thinking(session.generation)
         job=scope.launch {
             try {
                 val lists=withContext(Dispatchers.IO) { api.array("/v1/playlists") }
@@ -580,8 +610,9 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
                 val ids=list.getJSONArray("resources")
                 for(i in 0 until ids.length())queue.addLast(ids.getString(i))
                 if(queue.isNotEmpty())playResource(queue.removeFirst(),true)
+                else { session.playbackEnded(session.generation,SystemClock.elapsedRealtime());feedbackTracker.fail(session.generation,"清单里还没有内容，请先在家长端添加") }
             } catch(e:CancellationException) { throw e }
-            catch(_:Exception) { failure("media");diagnostic="清单不可播放，请在家长端检查资源状态" }
+            catch(_:Exception) { failure("media");diagnostic="清单不可播放，请在家长端检查资源状态";session.playbackEnded(session.generation,SystemClock.elapsedRealtime());feedbackTracker.fail(session.generation,"清单无法播放，请在家长端检查资源") }
         }
     }
     private suspend fun offerBooks(result:JSONObject,ticket:Long) {
@@ -697,6 +728,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         if(!session.allowed || session.muted)return
         cancelAudio()
         if(!session.active)session.wake(SystemClock.elapsedRealtime(),false)
+        feedbackTracker.beginAttempt();session.thinking(session.generation)
         job=scope.launch {
             try {
                 val manifest=withContext(Dispatchers.IO) {
@@ -730,7 +762,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
                 }
                 runMedia()
             } catch(e:CancellationException) { throw e }
-            catch(_:Exception) { failure("media");diagnostic="此资源无法播放，请检查发布或完整下载状态";session.stop() }
+            catch(_:Exception) { failure("media");diagnostic="此资源无法播放，请检查发布或完整下载状态";session.stop();feedbackTracker.fail(session.generation,"这段内容无法播放，请在家长端检查资源") }
         }
     }
     fun download(rid:String) {
@@ -849,6 +881,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
     }
     fun resumeMedia() {
         if(currentManifest==null || !session.resume(SystemClock.elapsedRealtime()))return
+        feedbackTracker.beginAttempt()
         cancelAudio();job=scope.launch { try {
             val m=currentManifest!!
             withContext(Dispatchers.IO) {
@@ -856,7 +889,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
                 else check(readOffline(m.getString("resourceId")).getString("revisionId")==m.getString("revisionId"))
             }
             runMedia()
-        } catch(e:CancellationException) { throw e } catch(_:Exception) { session.pause(SystemClock.elapsedRealtime());diagnostic="该阅读版本不可续播，请选择可用版本" } }
+        } catch(e:CancellationException) { throw e } catch(_:Exception) { session.pause(SystemClock.elapsedRealtime());diagnostic="该阅读版本不可续播，请选择可用版本";feedbackTracker.fail(session.generation,"暂时无法继续播放，请在家长端重新选择") } }
     }
     private fun changePage(direction:Int,group:String="pageId") {
         val m=currentManifest ?: return
