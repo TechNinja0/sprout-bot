@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from .tts import create_provider, make_request
+from .tts import SynthesisRetryableError, create_provider, make_request
 
 
 def main():
@@ -15,7 +15,11 @@ def main():
         try:
             task = json.loads(line)
             request = make_request(
-                task["text"], task.get("voice", {}), task.get("story", False)
+                task["text"],
+                task.get("voice", {}),
+                task.get("story", False),
+                language=task.get("language"),
+                variant=task.get("variant", 0),
             )
             # 第三方模型可能向 stdout 打印加载消息；协议 stdout 只允许一行 JSON。
             with contextlib.redirect_stdout(sys.stderr):
@@ -25,6 +29,13 @@ def main():
             result = {
                 "audio": base64.b64encode(audio.wav).decode(),
                 "durationMs": audio.duration_ms,
+            }
+        except SynthesisRetryableError as exc:
+            result = {
+                "error": type(exc).__name__,
+                "code": "tts_unstable_pace",
+                "retryable": True,
+                "message": str(exc),
             }
         except Exception as exc:
             result = {"error": type(exc).__name__}

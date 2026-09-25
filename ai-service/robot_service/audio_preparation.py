@@ -7,6 +7,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .auth import parent, principal
+from .reading_speech import synthesis_group
 from .schemas import Voice
 from .store import StorageCapacityError
 from .tts import LEGACY_PROFILE, render_profile
@@ -53,9 +54,25 @@ class AudioPreparation:
         path = self.path(revision, segment)
         return path.is_file() and path.stat().st_size > 0
 
+    def segment_ready(self, revision, segment, body, verify=False):
+        if not body.get("segmentationProfile"):
+            return self.cached(revision, segment["id"])
+        from .reading_audio import complete_group
+
+        return (
+            complete_group(
+                self.store.root / "audio" / revision,
+                synthesis_group(body, segment),
+                verify=verify,
+            )
+            is not None
+        )
+
     def reconcile(self, rid, revision, body):
         total = len(audio_segments(body))
-        completed = sum(self.cached(revision, s["id"]) for s in audio_segments(body))
+        completed = sum(
+            self.segment_ready(revision, s, body) for s in audio_segments(body)
+        )
         with self.store.transaction() as db:
             db.execute(
                 "UPDATE audio_jobs SET completed=?,total=?,"
@@ -117,8 +134,8 @@ class AudioPreparation:
         seg = next((s for s in audio_segments(body) if s["id"] == segment), None)
         if not seg:
             raise HTTPException(404, "段落不存在")
-        if not self.cached(revision, segment):
-            key = (revision, segment)
+        if not self.segment_ready(revision, seg, body, verify=True):
+            key = (revision, seg.get("groupId", segment))
             task = self.inflight.get(key)
             if task is None:
                 task = asyncio.create_task(
@@ -146,6 +163,33 @@ class AudioPreparation:
             raise HTTPException(
                 409, "此版本使用其他语音引擎；请重新发布或恢复原引擎后重试"
             )
+        if body.get("segmentationProfile"):
+            from .reading_audio import ensure_group, write_group
+            from .reading_speech import SEGMENTATION_VERSION
+
+            if body["segmentationProfile"] != SEGMENTATION_VERSION:
+                raise HTTPException(409, "朗读分段版本已变化，请重新试听并发布")
+
+            group = synthesis_group(body, seg)
+
+            def validate():
+                return published(self.store, rid, revision)
+
+            directory, metadata = await ensure_group(
+                self, request, rid, body, group, validate, bulk
+            )
+            with self.store.content_lock:
+                validate()
+                write_group(
+                    self.store,
+                    self.store.root / "audio" / revision,
+                    group,
+                    [(directory / (s["id"] + ".wav")).read_bytes() for s in group],
+                    metadata["mode"],
+                    [(r["startMs"], r["endMs"]) for r in metadata["segments"]],
+                )
+                self.reconcile(rid, revision, body)
+            return
         text = seg["text"]
         for src, dst in sorted(
             seg.get("pronunciation", {}).items(), key=lambda x: -len(x[0])
@@ -192,7 +236,7 @@ class AudioPreparation:
                 seg = next(
                     s
                     for s in audio_segments(body)
-                    if not self.cached(revision, s["id"])
+                    if not self.segment_ready(revision, s, body)
                 )
                 await self.ensure(
                     Request({"type": "http", "app": self.app}),
@@ -216,6 +260,11 @@ class AudioPreparation:
             permanent = status in (400, 404, 409, 410, 422) or isinstance(
                 exc, StorageCapacityError
             )
+            if (
+                isinstance(exc, HTTPException)
+                and (exc.headers or {}).get("X-Speech-Error") == "tts_unstable_pace"
+            ):
+                permanent = True  # 同一固定seed反复排队没有意义，等待家长选择重新生成。
             state = "failed" if permanent or attempts >= 5 else "queued"
             if status in (404, 410):
                 state = "cancelled"
@@ -311,3 +360,77 @@ def retry_preparation(
             (time.time(), revisionId),
         )
     return status_payload(store, rid, revisionId)
+
+
+def draft_speech_body(store, rid, expected_version, user):
+    from .library import get_resource, global_voice
+    from .reading_speech import SEGMENTATION_VERSION, segments
+    from .schemas import ResourceDraft
+
+    resource = get_resource(store, rid)
+    if resource["draft_version"] != expected_version:
+        raise HTTPException(409, "草稿版本已变化，请保存后重新试听")
+    draft = ResourceDraft.model_validate(resource["draft"])
+    if draft.voiceSource == "shared" and draft.voice.model_dump() != global_voice(
+        store, user
+    ):
+        raise HTTPException(409, "机器人声音已变化，请保存草稿后重新试听")
+    body = draft.model_dump()
+    body["segments"] = segments(body)
+    body["ttsProfile"] = render_profile()
+    body["segmentationProfile"] = SEGMENTATION_VERSION
+    return body
+
+
+@router.get("/resources/{rid}/speech-plan")
+def draft_speech_plan(
+    rid: str, expectedVersion: int, request: Request, user=Depends(parent)
+):
+    body = draft_speech_body(request.app.state.store, rid, expectedVersion, user)
+    return {
+        key: body[key]
+        for key in (
+            "segments",
+            "readingMode",
+            "ttsProfile",
+            "voice",
+            "segmentationProfile",
+        )
+    }
+
+
+@router.get("/resources/{rid}/speech-preview/{segment_id}")
+async def draft_speech_preview(
+    rid: str,
+    segment_id: str,
+    expectedVersion: int,
+    request: Request,
+    user=Depends(parent),
+):
+    from fastapi.responses import Response
+
+    from .reading_audio import ensure_group
+
+    manager = request.app.state.audio_preparation
+    body = draft_speech_body(manager.store, rid, expectedVersion, user)
+    if body.get("audioAsset"):
+        raise HTTPException(409, "本书使用原录音，请试听原音频")
+    segment = next((s for s in body["segments"] if s["id"] == segment_id), None)
+    if segment is None:
+        raise HTTPException(404, "段落不属于当前草稿")
+    group = synthesis_group(body, segment)
+
+    def validate():
+        return draft_speech_body(manager.store, rid, expectedVersion, user)
+
+    directory, metadata = await ensure_group(
+        manager, request, rid, body, group, validate
+    )
+    with manager.store.content_lock:
+        validate()
+        audio = (directory / (segment_id + ".wav")).read_bytes()
+    return Response(
+        audio,
+        media_type="audio/wav",
+        headers={"Cache-Control": "no-store", "X-Speech-Grouping": metadata["mode"]},
+    )

@@ -104,7 +104,7 @@ class ResourceVoiceRevisionTest {
                 ))pages.put(JSONObject().put("id",id).put("text",text).put("reviewed",true))
                 var resource=parent.json("/v1/resources","POST",JSONObject().put("kind","book").put("draft",JSONObject()
                     .put("title","原创版本与声音测试").put("language","en").put("complete",true).put("auditioned",true)
-                    .put("voice",JSONObject().put("en","Ryan").put("story","Ryan")).put("pages",pages)))
+                    .put("voiceSource","custom").put("voice",JSONObject().put("en","Ryan").put("story","Ryan")).put("pages",pages)))
                 val rid=resource.getString("id");resourceId=rid
                 fun publish():String=parent.json("/v1/resources/$rid/publish","POST",JSONObject()
                     .put("expectedVersion",resource.getInt("draft_version")).put("requestId",UUID.randomUUID().toString())).getString("revisionId")
@@ -150,7 +150,7 @@ class ResourceVoiceRevisionTest {
                 connected(true);waitFor("恢复在线") { snapshot().getBoolean("online") }
                 play(oldRevision)
                 resource=parent.json("/v1/resources/$rid")
-                resource.getJSONObject("draft").getJSONObject("voice").put("en","Serena").put("story","Serena")
+                resource.getJSONObject("draft").put("voiceSource","custom").getJSONObject("voice").put("en","Serena").put("story","Serena")
                 resource=parent.json("/v1/resources/$rid","PUT",JSONObject().put("expectedVersion",resource.getInt("draft_version")).put("draft",resource.getJSONObject("draft")))
                 assertFalse("换声必须重新确认试听",resource.getJSONObject("draft").getBoolean("auditioned"))
                 // 测试审核标记；不把自动设置标记当作人工听音质量验收。

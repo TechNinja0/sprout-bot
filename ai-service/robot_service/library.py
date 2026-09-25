@@ -6,6 +6,7 @@ import unicodedata
 from fastapi import APIRouter, Depends, Request
 
 from .auth import fail, parent, principal, robot
+from .reading_speech import SEGMENTATION_VERSION, segments
 from .schemas import (
     Lookup,
     Progress,
@@ -14,7 +15,7 @@ from .schemas import (
     ResourceDraft,
     ResourceEdit,
 )
-from .store import bump_catalog, digest, dumps, uid
+from .store import bump_catalog, dumps, uid
 from .tts import LEGACY_PROFILE, render_profile
 
 router = APIRouter(prefix="/v1")
@@ -99,33 +100,35 @@ def scope_notice(draft):
     }
 
 
-def segments(draft):
-    result = []
-    for page in draft["pages"]:
-        if page["skip"]:
-            continue
-        # 固定小段，保留全部字符；原文和发音映射各自留存。
-        text = page["text"]
-        chunks = re.findall(r".{1,200}(?:[。！？.!?\n]|$)|.{1,200}", text, re.S)
-        for index, chunk in enumerate(chunks):
-            result.append(
-                {
-                    "id": digest(page["id"] + ":" + str(index) + ":" + chunk)[:24],
-                    "pageId": page["id"],
-                    "label": page["label"],
-                    "chapter": page["chapter"],
-                    "text": chunk,
-                    "pronunciation": page["pronunciation"],
-                    "language": draft["language"],
-                }
-            )
-    return result
+def global_voice(store, user):
+    from .schemas import Voice
+
+    row = store.one(
+        "SELECT body FROM configs WHERE robot_id=?",
+        (user.get("robot_id") or user["id"],),
+    )
+    return Voice.model_validate(
+        json.loads(row["body"]).get("voice", {}) if row else {}
+    ).model_dump()
+
+
+def resolve_draft_voice(draft, store, user):
+    if draft.voiceSource == "shared":
+        from .schemas import Voice
+
+        draft.voice = Voice.model_validate(global_voice(store, user))
 
 
 @router.post("/resources")
 def create(body: ResourceCreate, request: Request, user=Depends(parent)):
     rid = uid()
     store = request.app.state.store
+    if (
+        "voice" not in body.draft.model_fields_set
+        and "voiceSource" not in body.draft.model_fields_set
+    ):
+        body.draft.voiceSource = "shared"
+    resolve_draft_voice(body.draft, store, user)
     with store.transaction() as db:
         validate_assets(db, rid, body.draft)
         db.execute(
@@ -204,12 +207,20 @@ def listing(
 def detail(rid: str, request: Request, user=Depends(parent)):
     row = get_resource(request.app.state.store, rid)
     row["pageOrderWarnings"] = page_order_warnings(row["draft"].get("pages", []))
+    row["globalVoice"] = global_voice(request.app.state.store, user)
+    from .schemas import Voice
+
+    row["voiceMatchesGlobal"] = (
+        Voice.model_validate(row["draft"].get("voice", {})).model_dump()
+        == row["globalVoice"]
+    )
     return row
 
 
 @router.put("/resources/{rid}")
 def edit(rid: str, body: ResourceEdit, request: Request, user=Depends(parent)):
     store = request.app.state.store
+    resolve_draft_voice(body.draft, store, user)
     with store.transaction() as db:
         row = db.execute(
             "SELECT * FROM resources WHERE id=? AND status!=?", (rid, "deleted")
@@ -224,7 +235,15 @@ def edit(rid: str, body: ResourceEdit, request: Request, user=Depends(parent)):
         old = json.loads(row["draft"])
         if any(
             old.get(k) != payload.get(k)
-            for k in ("pages", "voice", "audioAsset", "complete", "excerpt")
+            for k in (
+                "pages",
+                "voice",
+                "voiceSource",
+                "readingMode",
+                "audioAsset",
+                "complete",
+                "excerpt",
+            )
         ):
             payload["auditioned"] = False
         db.execute(
@@ -254,6 +273,10 @@ def publish(rid: str, body: Publish, request: Request, user=Depends(parent)):
         if row["draft_version"] != body.expectedVersion:
             fail(409, "草稿版本冲突")
         draft = ResourceDraft.model_validate_json(row["draft"])
+        if draft.voiceSource == "shared" and draft.voice.model_dump() != global_voice(
+            store, user
+        ):
+            fail(409, "机器人声音已变化，请保存草稿并重新试听后发布")
         validate_assets(db, rid, draft)
         if not draft.complete and not draft.excerpt.strip():
             fail(422, "需确认完整范围或填写节选范围")
@@ -273,6 +296,7 @@ def publish(rid: str, body: Publish, request: Request, user=Depends(parent)):
         snapshot["segments"] = segments(snapshot)
         snapshot["scopeNotice"] = scope_notice(snapshot)
         snapshot["ttsProfile"] = render_profile()
+        snapshot["segmentationProfile"] = SEGMENTATION_VERSION
         rev = uid()
         db.execute(
             "INSERT INTO revisions VALUES(?,?,?,?,0)",
@@ -350,6 +374,9 @@ def delete(rid: str, request: Request, user=Depends(parent)):
         import shutil
 
         shutil.rmtree(store.root / "audio" / rev["id"], ignore_errors=True)
+    import shutil
+
+    shutil.rmtree(store.root / "audio" / ("previews-" + rid), ignore_errors=True)
     return {"state": "deleted", "offline": "pending_sync"}
 
 
@@ -461,6 +488,8 @@ def manifest(
         "scopeNotice": scope_notice(b),
         "voice": b["voice"],
         "ttsProfile": b.get("ttsProfile", LEGACY_PROFILE),
+        "readingMode": b.get("readingMode", "follow_pages"),
+        "segmentationProfile": b.get("segmentationProfile", "pages-1"),
         "audioAsset": b["audioAsset"],
         "segments": b["segments"],
         "offlineKeywords": book_keywords(rid, b),

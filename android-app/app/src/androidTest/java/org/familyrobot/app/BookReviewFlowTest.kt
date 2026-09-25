@@ -79,6 +79,7 @@ class BookReviewFlowTest {
                     assertFalse(find("保存并确认本页").parent.isEnabled)
                     check("本页不朗读");tap("保存并确认本页");await("全部完成转到发布"){device.hasObject(By.text("试听与发布"))&&device.hasObject(By.text("校对进度"))}
                     find("2 / 2 页");capture("$theme-publish-top")
+                    tap("跟随机器人声音");tap("本书独立声音")
                     find("情感 / 朗读语气");find("补充语气描述（最多200字，可留空）");tap("高品质");tap("标准")
                     find("选择试听页");capture("$theme-publish-preview")
                     tap("试听所选页");await("发布页试听完成"){device.hasObject(By.textContains("试听完成，可重播"))}

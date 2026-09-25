@@ -123,10 +123,13 @@ def test_excerpt_notice_separate_from_original_and_bound_to_revision(
     assert manifest["scopeNotice"]["id"] == "scope-notice"
     assert "第2到4页" in manifest["scopeNotice"]["text"]
     assert "".join(s["text"] for s in manifest["segments"]) == draft["pages"][0]["text"]
-    speech = AsyncMock(return_value=b"fixed notice test audio")
+    from test_audio_preparation import sample_audio
+
+    notice_audio = sample_audio()
+    speech = AsyncMock(return_value=notice_audio)
     monkeypatch.setattr("robot_service.intelligence.speech", speech)
     audio = c.get(path + "/audio/scope-notice?revisionId=" + revision, headers=rh)
-    assert audio.status_code == 200 and audio.content == b"fixed notice test audio"
+    assert audio.status_code == 200 and audio.content == notice_audio
     assert speech.call_args.args[1] == manifest["scopeNotice"]["text"]
     # 范围提示不可成为阅读正文进度。
     assert (

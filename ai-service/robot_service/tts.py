@@ -1,6 +1,8 @@
 """本地 TTS 契约与能力目录。业务层不依赖模型的 speaker ID 或推理 API。"""
 
+import hashlib
 import io
+import json
 import os
 import re
 import wave
@@ -24,6 +26,41 @@ STYLES = {
 QWEN_DIR = "qwen3-tts-1.7b-customvoice-8bit"
 QWEN_REVISION = "41d3337e8b7f2843a75841595fc14e4b9a7a4b96"
 LEGACY_PROFILE = "kokoro-v1.0:sherpa-onnx-1.13.8:render-1"
+QWEN_GENERATION = {
+    "temperature": 0.5,
+    "top_k": 50,
+    "top_p": 0.9,
+    "repetition_penalty": 1.05,
+    "max_tokens": 3072,
+    "verbose": False,
+    "stream": False,
+    "streaming_interval": 2.0,
+}
+QWEN_LANGUAGE_INSTRUCTIONS = {
+    "zh": "使用中文，吐字清楚，保持所选说话人的自然口音。",
+    "en": "Speak clear, natural English; retain the selected speaker's natural accent.",
+}
+QWEN_VOICE_CONSTRAINT = (
+    "保持所选说话人的音色、身份和自然口音。整体温和自然，"
+    "避免夸张表演、突然提高音量或模仿其他人物。"
+)
+QWEN_SEED_VERSION = "sha256-canonical-json-v1"
+QWEN_PACE_GUARD = {
+    "version": "style-zh-active-duration-v2",
+    "minimum_characters": 8,
+    "frame_ms": 20,
+    "active_floor_dbfs": -45.0,
+    # 每字有声时长上限；不计停顿，温柔略放宽、叙事允许更大语义起伏。
+    "eligible_styles": {
+        "neutral": 0.34,
+        "gentle": 0.36,
+        "cheerful": 0.34,
+        "storytelling": 0.40,
+    },
+    "slack_seconds": 0.8,
+    "maximum_attempts": 2,
+    "retry_seed": "sha256-base-seed-attempt-v1",
+}
 QWEN_VOICES = [
     {"id": "Serena", "name": "苏瑶 · 温暖女声", "language": "zh"},
     {"id": "Vivian", "name": "十三 · 明亮女声", "language": "zh"},
@@ -51,12 +88,17 @@ class SynthesisRequest:
     speed: float
     style: str
     instruction: str
+    variant: int = 0
 
 
 @dataclass(frozen=True)
 class SynthesisResult:
     wav: bytes
     duration_ms: int
+
+
+class SynthesisRetryableError(ValueError):
+    """有限候选均未通过节奏检查；调用方可更换 variant 后重试。"""
 
 
 class TTSProvider(Protocol):
@@ -74,7 +116,27 @@ def render_profile():
     """发布版本固定声音实现；更换权重、推理库或语气模板时升级此指纹。"""
     if backend_name() == "kokoro":
         return LEGACY_PROFILE
-    return f"qwen3-1.7b-customvoice-8bit:{QWEN_REVISION}:mlx-audio-0.5.5:render-1"
+    from .speech_audio import AUDIO_PROFILE
+    from .speech_text import TEXT_PROFILE
+
+    settings = {
+        "generation": QWEN_GENERATION,
+        "styles": STYLES,
+        "languages": QWEN_LANGUAGE_INSTRUCTIONS,
+        "constraint": QWEN_VOICE_CONSTRAINT,
+        "seed": QWEN_SEED_VERSION,
+        "paceGuard": QWEN_PACE_GUARD,
+        "text": TEXT_PROFILE,
+        "audio": AUDIO_PROFILE,
+        "defaults": {"style": "neutral", "storyStyle": "default"},
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(settings, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
+    return (
+        f"qwen3-1.7b-customvoice-8bit:{QWEN_REVISION}:"
+        f"mlx-audio-0.5.5:render-2:{fingerprint}"
+    )
 
 
 def worker_python():
@@ -120,15 +182,19 @@ def capabilities(root: Path):
         ],
         "supportsInstruction": qwen,
         "supportsStyle": qwen,
-        "speedMode": "instruction" if qwen else "factor",
+        "speedMode": "atempo" if qwen else "factor",
         "voices": QWEN_VOICES if qwen else KOKORO_VOICES,
         "styles": [{"id": k, "name": v[0]} for k, v in STYLES.items()] if qwen else [],
     }
 
 
-def make_request(text, voice, story=False):
+def make_request(text, voice, story=False, language=None, variant=0):
     """兼容已保存的 default/zh-girl 等旧配置；非法新音色明确报错。"""
-    language = "zh" if re.search(r"[\u3400-\u9fff]", text) else "en"
+    if language is not None and language not in ("zh", "en"):
+        raise ValueError("语言仅支持 zh/en")
+    if type(variant) is not int or not 0 <= variant <= 2**31 - 1:
+        raise ValueError("variant 必须为 0..2**31-1 的整数")
+    language = language or ("zh" if re.search(r"[\u3400-\u9fff]", text) else "en")
     selected = voice.get("story", "default") if story else "default"
     if selected == "default":
         selected = voice.get(language, "default")
@@ -157,11 +223,9 @@ def make_request(text, voice, story=False):
         voices = KOKORO_VOICES
     if selected not in {v["id"] for v in voices}:
         raise ValueError("当前引擎未安装所选音色")
-    style = (
-        voice.get("storyStyle", "storytelling")
-        if story
-        else voice.get("style", "gentle")
-    )
+    style = voice.get("style", "neutral")
+    if story and voice.get("storyStyle", "default") != "default":
+        style = voice["storyStyle"]
     if style not in STYLES:
         raise ValueError("未知语气")
     speed = float(voice.get("speed", 1.0))
@@ -172,7 +236,9 @@ def make_request(text, voice, story=False):
         or not 0 < len(text.strip()) <= 600
     ):
         raise ValueError("语音参数超出范围")
-    return SynthesisRequest(text.strip(), selected, language, speed, style, instruction)
+    return SynthesisRequest(
+        text.strip(), selected, language, speed, style, instruction, variant
+    )
 
 
 def wav_result(samples, sample_rate):

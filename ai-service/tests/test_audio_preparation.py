@@ -104,7 +104,7 @@ def test_restart_backfills_old_books_and_skips_completed_segments(system, monkey
     next((store.root / "audio" / rev).glob("*.wav")).unlink()
     c.app.state.audio_preparation.recover()
     drive(c)
-    assert run.await_count == 3
+    assert run.await_count == 2  # 复用试听/发布共享缓存恢复，声音无需重生。
     assert status(c, ph, book["id"])["state"] == "ready"
 
 

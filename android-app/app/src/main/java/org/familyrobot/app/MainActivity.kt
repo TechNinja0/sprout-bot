@@ -510,7 +510,7 @@ class MainActivity:ComponentActivity() {
     }
     @Composable private fun ResourceEditor(api:Api,rid:String,robotId:String,back:()->Unit) {
         val scope=rememberCoroutineScope();var item by remember { mutableStateOf<JSONObject?>(null) };var message by remember { mutableStateOf("") };var busy by remember { mutableStateOf(false) }
-        var jobs by remember { mutableStateOf(JSONArray()) };var voiceModels by remember { mutableStateOf(JSONObject()) }
+        var jobs by remember { mutableStateOf(JSONArray()) };var voiceModels by remember { mutableStateOf(JSONObject()) };var globalVoice by remember { mutableStateOf<JSONObject?>(null) }
         var editingPage by remember{mutableStateOf(false)};var pageIndex by remember { mutableIntStateOf(0) };var source by remember { mutableStateOf<Bitmap?>(null) };var delete by remember { mutableStateOf(false) }
         var purpose by rememberSaveable { mutableStateOf("pages") };var targetPage by rememberSaveable { mutableStateOf("") };var capturePath by rememberSaveable { mutableStateOf("") }
         var importing by remember { mutableStateOf(false) };var cancelImport by remember { mutableStateOf(false) }
@@ -530,8 +530,14 @@ class MainActivity:ComponentActivity() {
             else exitEditor()
         }
         fun run(action:suspend ()->Unit) { scope.launch { busy=true;try { action() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "操作失败" } finally { busy=false } } }
-        suspend fun refresh() { val result=withContext(Dispatchers.IO) { Triple(api.json("/v1/resources/$rid"),api.array("/v1/jobs"),api.json("/v1/models")) };item=result.first;savedDraft=item!!.getJSONObject("draft").toString();jobs=result.second;voiceModels=result.third;source=null }
-        suspend fun save() { val current=item ?: return;item=withContext(Dispatchers.IO) { api.json("/v1/resources/$rid","PUT",JSONObject().put("expectedVersion",current.getInt("draft_version")).put("draft",current.getJSONObject("draft"))) };savedDraft=item!!.getJSONObject("draft").toString() }
+        suspend fun refresh() { val result=withContext(Dispatchers.IO) { Triple(api.json("/v1/resources/$rid"),api.array("/v1/jobs"),api.json("/v1/models")) };item=result.first;globalVoice=item!!.optJSONObject("globalVoice");savedDraft=item!!.getJSONObject("draft").toString();jobs=result.second;voiceModels=result.third;source=null }
+        suspend fun save(saveApi:Api=api) {
+            val current=item ?: return
+            val body=JSONObject().put("expectedVersion",current.getInt("draft_version")).put("draft",JSONObject(current.getJSONObject("draft").toString()))
+            item=withContext(Dispatchers.IO) { saveApi.json("/v1/resources/$rid","PUT",body) }
+            val saved=item!!.getJSONObject("draft");savedDraft=saved.toString()
+            if(saved.optString("voiceSource","custom")=="shared")globalVoice=JSONObject(saved.getJSONObject("voice").toString())
+        }
         fun confirmPage(){run{
             val page=item!!.getJSONObject("draft").getJSONArray("pages").getJSONObject(pageIndex)
             require(bookPageCanConfirm(page)){"请补齐正文，或将空白页标记为不朗读"}
@@ -544,21 +550,33 @@ class MainActivity:ComponentActivity() {
         fun audition(index:Int,forPublish:Boolean){
             if(previewing||busy)return
             val current=item?:return;val draft=current.getJSONObject("draft")
-            val copy=JSONObject(draft.toString());val snapshot=bookAuditionKey(copy)
-            val originalAudio=forPublish&&copy.optString("audioAsset").isNotBlank()
-            val chunks=if(originalAudio)emptyList()else bookSpokenChunks(copy.getJSONArray("pages").getJSONObject(index))
-            if(!originalAudio&&chunks.isEmpty()){message="本页没有可试听的正文，或已设为不朗读";return}
+            val originalAudio=forPublish&&draft.optString("audioAsset").isNotBlank()
+            val page=draft.getJSONArray("pages").optJSONObject(index)
+            if(!originalAudio&&(page==null||page.optBoolean("skip")||page.optString("text").isBlank())){message="本页没有可试听的正文，或已设为不朗读";return}
+            val pageId=page?.getString("id").orEmpty()
             stopPreview();auditionConfirmed=false;lastPreviewedDraft="";draft.put("auditioned",false);previewing=true
             val audioApi=Api(api.connection);bookPreviewApi=audioApi
             bookPreviewJob=scope.launch{
                 try{
-                    // 先保存试听对应的版本，再逐段生成和播放；未播放完不授予确认资格。
-                    save()
+                    // shared 保存时会解析最新声音；版本、声音及确认快照必须取保存后的值。
+                    message="正在保存试听草稿"
+                    save(audioApi)
+                    val saved=item!!;val copy=JSONObject(saved.getJSONObject("draft").toString())
+                    val snapshot=bookAuditionKey(copy);val version=saved.getInt("draft_version")
                     if(originalAudio){message="正在试听原录音";val data=withContext(Dispatchers.IO){audioApi.raw("/v1/assets/${copy.getString("audioAsset")}")};playBookAudio(data)}
-                    else for((part,text) in chunks.withIndex()){
-                        message="正在试听第 ${index+1} 页 · ${part+1}/${chunks.size} 段"
-                        val data=withContext(Dispatchers.IO){audioApi.raw("/v1/speech/preview","POST",JSONObject().put("text",text).put("voice",copy.getJSONObject("voice")).put("story",true).toBody())}
-                        ensureActive();playBookAudio(data)
+                    else {
+                        val plan=withContext(Dispatchers.IO){audioApi.json("/v1/resources/$rid/speech-plan?expectedVersion=$version")}
+                        val segments=bookPreviewSegments(plan,pageId,forPublish)
+                        require(segments.isNotEmpty()){"本页没有可试听的正式朗读分段"}
+                        for((part,segment) in segments.withIndex()){
+                            val savedPages=copy.getJSONArray("pages")
+                            val position=(0 until savedPages.length()).firstOrNull{savedPages.getJSONObject(it).optString("id")==segment.optString("pageId")}
+                            val label=segment.optString("label").takeIf{it.isNotBlank()}?.let{" · $it"}.orEmpty()
+                            message="正在试听第 ${(position?:index)+1} 页$label · ${part+1}/${segments.size} 段"
+                            val segmentId=Uri.encode(segment.getString("id"))
+                            val data=withContext(Dispatchers.IO){audioApi.raw("/v1/resources/$rid/speech-preview/$segmentId?expectedVersion=$version")}
+                            ensureActive();playBookAudio(data)
+                        }
                     }
                     if(bookAuditionKey(item!!.getJSONObject("draft"))==snapshot){
                         if(forPublish)lastPreviewedDraft=snapshot
@@ -568,6 +586,16 @@ class MainActivity:ComponentActivity() {
                 catch(e:Exception){message="试听失败：${e.message}"}
                 finally{previewing=false;bookPreviewJob=null;if(bookPreviewApi===audioApi)bookPreviewApi=null}
             }
+        }
+        fun regenerateAndAudition(index:Int,forPublish:Boolean){
+            if(previewing||busy)return
+            val draft=item?.getJSONObject("draft")?:return
+            if(draft.optString("audioAsset").isNotBlank())return
+            val page=draft.getJSONArray("pages").optJSONObject(index)?:return
+            if(page.optBoolean("skip")||page.optString("text").isBlank())return
+            val variant=page.optInt("synthesisVariant",0)
+            if(variant>=1_000_000){message="本页重新生成次数已达上限";return}
+            page.put("synthesisVariant",variant+1);draftChanged();audition(index,forPublish)
         }
         DisposableEffect(Unit){onDispose{stopPreview()}}
         suspend fun awaitJob(jobId:String):JSONObject {
@@ -643,13 +671,13 @@ class MainActivity:ComponentActivity() {
         }
         fun addTextPage(){
             val current=item ?: return;val pages=current.getJSONObject("draft").getJSONArray("pages")
-            pages.put(JSONObject().put("id",UUID.randomUUID().toString()).put("text","").put("reviewed",false))
+            pages.put(JSONObject().put("id",UUID.randomUUID().toString()).put("text","").put("reviewed",false).put("synthesisVariant",0).put("breakBefore",false))
             pageIndex=pages.length()-1;stage=1;editingPage=true;editorRoute="main";editorHistory=emptyList();item=JSONObject(current.toString());message=""
         }
         val editorTitle=when(editorRoute){"cover"->"录入封面";"import"->"录入正文";"audio"->"导入已有音频";"jobs"->"本书导入任务";else->if(stage==1)if(editingPage)"校对本页" else "逐页校对" else if(stage==2)"试听与发布" else if(item?.optString("kind")=="book")"录入图书" else "编辑资源草稿"}
         val editorScroll=remember(editorRoute,stage,editingPage,pageIndex){ScrollState(0)}
         val currentDraft=item?.getJSONObject("draft")
-        val publishReady=currentDraft?.let{bookReadyToPublish(item!!.getString("kind"),it)&&it.getJSONObject("voice").optDouble("speed",1.0) in 0.7..1.3}==true
+        val publishReady=currentDraft?.let{bookReadyToPublish(item!!.getString("kind"),it)&&(it.optString("voiceSource","custom")=="shared"||it.getJSONObject("voice").optDouble("speed",1.0) in 0.7..1.3)}==true
         val auditionValid=currentDraft?.let{bookAuditionKey(it)==lastPreviewedDraft}==true
         val pageMessage=if(editorRoute=="main"&&(stage==2||stage==1&&editingPage)&&message.contains("试听"))"" else message
         Page(editorTitle,pageMessage,busy,onBack={if(!busy)editorBack()},scroll=editorScroll,
@@ -752,9 +780,14 @@ class MainActivity:ComponentActivity() {
                             val warnings=page.optJSONArray("qualityWarnings")?:JSONArray()
                             for(i in 0 until warnings.length())Text(names[warnings.getString(i)]?:warnings.getString(i),color=MaterialTheme.colorScheme.error,fontSize=12.sp)
                             BookCheck("本页不朗读",page.optBoolean("skip")){page.put("skip",it);changed()}
+                            BookCheck("本页开始新场景（连续朗读时不与前页合成）",page.optBoolean("breakBefore",false)){page.put("breakBefore",it);draftChanged()}
                             Text("空白页、版权页保留页序，也需要确认。页眉、脚注是否朗读，请直接编辑正文。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             DetailDisclosure("发音纠正"){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){PronunciationEditor(page){changed()}}}
-                            if(draft.optString("audioAsset").isBlank())FullAction(if(previewing)"停止试听" else "试听本页",secondary=true,enabled=previewing||(!page.optBoolean("skip")&&page.optString("text").isNotBlank())){if(previewing)stopPreview()else audition(pageIndex,false)}
+                            if(draft.optString("audioAsset").isBlank()){
+                                val canAudition=!busy&&!page.optBoolean("skip")&&page.optString("text").isNotBlank()
+                                FullAction(if(previewing)"停止试听" else "试听本页",secondary=true,enabled=previewing||canAudition){if(previewing)stopPreview()else audition(pageIndex,false)}
+                                FullAction("重新生成并试听",secondary=true,enabled=!previewing&&canAudition){regenerateAndAudition(pageIndex,false)}
+                            }
                             else Text("当前使用原录音，无法按正文定位播放；请在发布页试听整段原录音。",fontSize=12.sp)
                             if(message.contains("试听"))Text(message,fontSize=12.sp,color=MaterialTheme.colorScheme.primary)
                             DetailDisclosure("重新识别与替换"){
@@ -790,7 +823,22 @@ class MainActivity:ComponentActivity() {
                     SectionHeading("朗读设置")
                     val hasAudio=draft.optString("audioAsset").isNotBlank()
                     if(hasAudio)DesignGroup{Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("使用原录音");Text("保留原声音色、情感和语速。正文发音纠正不改变原录音。",fontSize=13.sp)}}
-                    else BookVoiceForm(draft.getJSONObject("voice"),voiceModels,draft.optString("language")){key,value->draft.getJSONObject("voice").put(key,value);draftChanged()}
+                    else {
+                        BookSelect("声音来源",draft.optString("voiceSource","custom"),listOf("shared" to "跟随机器人声音","custom" to "本书独立声音")){draft.put("voiceSource",it);draftChanged()}
+                        if(draft.optString("voiceSource","custom")=="shared"){
+                            Text("与机器人保持一致",fontSize=14.sp)
+                            Text("保存草稿时同步机器人当前声音；已发布的声音保持不变。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }else {
+                            Text(if(bookVoiceMatchesGlobal(draft.getJSONObject("voice"),globalVoice))"本书独立声音，当前与机器人设置一致" else "本书独立声音，与机器人设置不同",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            FullAction("拷贝机器人当前声音",secondary=true,enabled=globalVoice!=null&&!previewing){run{
+                                val latest=withContext(Dispatchers.IO){api.json("/v1/resources/$rid").getJSONObject("globalVoice")}
+                                globalVoice=latest;draft.put("voice",JSONObject(latest.toString()));draftChanged();message="已拷贝机器人当前声音，保存后应用到本书"
+                            }}
+                            BookVoiceForm(draft.getJSONObject("voice"),voiceModels,draft.optString("language")){key,value->draft.getJSONObject("voice").put(key,value);draftChanged()}
+                        }
+                        BookSelect("阅读方式",draft.optString("readingMode","follow_pages"),listOf("follow_pages" to "跟书朗读","continuous" to "连续故事")){draft.put("readingMode",it);draftChanged()}
+                        Text("跟书朗读保留页间停顿，方便对照书页；连续故事可合并关联短页，听起来更连贯，仍支持翻页。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     SectionHeading("试听与确认")
                     val playable=(0 until pages.length()).filter{pages.getJSONObject(it).let{p->!p.optBoolean("skip")&&p.optString("text").isNotBlank()}}
                     if(!hasAudio&&playable.isNotEmpty()){
@@ -799,6 +847,10 @@ class MainActivity:ComponentActivity() {
                     }
                     FullAction(if(previewing)"停止试听" else if(hasAudio)"试听原录音" else "试听所选页",secondary=true,enabled=previewing||hasAudio||playable.isNotEmpty()){
                         if(previewing)stopPreview()else audition(auditionPage,true)
+                    }
+                    if(!hasAudio){
+                        FullAction("重新生成并试听",secondary=true,enabled=!previewing&&!busy&&playable.isNotEmpty()){regenerateAndAudition(auditionPage,true)}
+                        Text(if(draft.optString("readingMode","follow_pages")=="continuous")"试听包含所选页及同组关联页；重新生成只更新该组，其他组保留。发布复用试听音频。" else "试听与发布使用相同分段；重新生成只更新所选页所在组，其他组保留。发布复用试听音频。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if(message.contains("试听"))Text(message,fontSize=12.sp,color=MaterialTheme.colorScheme.primary)
                     Text(if(hasAudio)"试听原录音可检查声音效果，也可直接确认收录范围后发布。" else "试听可选，用于检查声音和读音；不试听也可在完成校对、确认收录范围后发布。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)

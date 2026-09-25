@@ -15,6 +15,15 @@ import org.json.JSONObject
 
 /** UI 确认绑定具体草稿，不能被一次旧试听沿用。 */
 fun bookAuditionKey(draft:JSONObject)=JSONObject(draft.toString()).put("auditioned",false).toString()
+fun bookVoiceMatchesGlobal(voice:JSONObject,globalVoice:JSONObject?):Boolean {
+    if(globalVoice==null)return false
+    val strings=mapOf("quality" to "high","zh" to "default","en" to "default","story" to "default","style" to "neutral","storyStyle" to "default","instruction" to "")
+    return strings.all{(key,default)->voice.optString(key,default)==globalVoice.optString(key,default)}&&
+        mapOf("speed" to 1.0,"volume" to 0.5).all{(key,default)->
+            val value=(voice.opt(key)?:default).toString().toDoubleOrNull()
+            value!=null&&value==(globalVoice.opt(key)?:default).toString().toDoubleOrNull()
+        }
+}
 fun bookPageCanConfirm(page:JSONObject)=page.optBoolean("skip")||page.optString("text").isNotBlank()
 fun bookReadyToPublish(kind:String,draft:JSONObject):Boolean {
     val pages=draft.getJSONArray("pages");val audio=draft.optString("audioAsset").isNotBlank()
@@ -30,6 +39,15 @@ fun bookSpokenChunks(page:JSONObject):List<String>{
     // 接口单段最多 600 字；按 Unicode 字符分段，整页顺序播放，不静默截断。
     val points=text.codePoints().toArray()
     return points.toList().chunked(550).map{String(it.toIntArray(),0,it.size)}.filter{it.isNotBlank()}
+}
+/** 使用服务端正式分段及顺序；发布试听可包含连续模式下同组的关联书页。 */
+fun bookPreviewSegments(plan:JSONObject,pageId:String,forPublish:Boolean):List<JSONObject>{
+    val rows=plan.getJSONArray("segments")
+    val segments=(0 until rows.length()).map{rows.getJSONObject(it)}
+    val selected=segments.filter{it.optString("pageId")==pageId}
+    if(!forPublish||plan.optString("readingMode","follow_pages")!="continuous")return selected
+    val groups=selected.map{it.optString("groupId")}.filter{it.isNotBlank()}.toSet()
+    return segments.filter{it.optString("pageId")==pageId||it.optString("groupId") in groups}
 }
 @Composable fun BookSelect(label:String,value:String,options:List<Pair<String,String>>,change:(String)->Unit){
     var expanded by remember{mutableStateOf(false)}
@@ -58,15 +76,21 @@ fun bookSpokenChunks(page:JSONObject):List<String>{
     BookSelect("朗读声音",selected,voices){change("story",it)}
     if(info?.optBoolean("supportsStyle")==true){
         val styles=info.optJSONArray("styles")
-        val options=if(styles==null)emptyList()else (0 until styles.length()).map{styles.getJSONObject(it).let{v->v.getString("id") to v.getString("name")}}
-        BookSelect("情感 / 朗读语气",voice.optString("storyStyle"),options){change("storyStyle",it)}
+        val choices=if(styles==null)emptyList()else (0 until styles.length()).map{styles.getJSONObject(it).let{v->v.getString("id") to v.getString("name")}}
+        val options=(listOf("default" to "跟随回答语气","neutral" to "自然平和")+choices).distinctBy{it.first}
+        BookSelect("情感 / 朗读语气",voice.optString("storyStyle","default"),options){change("storyStyle",it)}
+        if(voice.optString("storyStyle","default")=="default"&&voice.optString("style","neutral")=="neutral")Text("跟随回答语气：自然平和",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }else Text("当前声音引擎不支持情感设置，已有配置会保留。",fontSize=12.sp)
-    var speed by remember{mutableStateOf(voice.optDouble("speed",1.0).toString())}
-    FormField("语速偏好（0.7—1.3）",speed){speed=it;change("speed",it.toDoubleOrNull()?:it)}
+    var speed by remember{mutableStateOf(voice.opt("speed")?.toString()?:"1.0")}
+    LaunchedEffect(voice.opt("speed")){
+        val stored=voice.opt("speed")?.toString()?:"1.0"
+        if(speed!=stored&&speed.toDoubleOrNull()!=stored.toDoubleOrNull())speed=stored
+    }
+    FormField("语速倍率（0.7—1.3，1.0 为原速）",speed){speed=it;change("speed",it.toDoubleOrNull()?:it)}
     if(voice.optDouble("speed",1.0) !in 0.7..1.3)Text("请输入 0.7—1.3 之间的语速",color=MaterialTheme.colorScheme.error,fontSize=12.sp)
     if(info?.optBoolean("supportsInstruction")==true)FormField("补充语气描述（最多200字，可留空）",voice.optString("instruction"),2){change("instruction",it.take(200))}
     if(info?.optJSONArray("qualities")!=null)BookSelect("人声音质",voice.optString("quality","high"),listOf("standard" to "标准","high" to "高品质")){change("quality",it)}
     else Text("当前声音引擎未提供可选音质。",fontSize=12.sp)
-    Text("语速为生成偏好；标准音质减少传输与存储，高品质保留原始采样率。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    Text((if(info?.optString("speedMode")=="atempo")"按语速倍率变速、不变调，短音频的实际时长可能有少量偏差。" else "语速倍率：0.7 倍更慢，1.3 倍更快。")+"标准音质减少传输与存储，高品质保留原始采样率。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
     if(info!=null&&!info.optBoolean("ready"))Text("朗读服务尚未就绪，恢复后可试听。",color=MaterialTheme.colorScheme.error)
 }

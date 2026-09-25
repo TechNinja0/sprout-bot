@@ -18,7 +18,7 @@ def test_legacy_voice_config_uses_native_chinese_voice(monkeypatch):
     monkeypatch.setenv("ROBOT_TTS_BACKEND", "qwen3-mlx")
     request = make_request("早上好。", Voice().model_dump())
     assert request.voice == "Serena" and request.language == "zh"
-    assert request.style == "gentle"
+    assert make_request("早上好。", {}).style == "neutral"
     assert make_request("你好", {"zh": "zh-boy"}).voice == "Uncle_Fu"
     assert make_request("Hello.", {}).voice == "Ryan"
     assert make_request("apple，苹果。", {}).language == "zh"
@@ -39,7 +39,8 @@ def test_story_uses_its_own_voice_and_style(monkeypatch):
     assert (normal.voice, normal.style) == ("Serena", "cheerful")
     assert (story.voice, story.style) == ("Uncle_Fu", "soothing")
     instruction = voice_instruction(story)
-    assert "标准普通话" in instruction and "0.90" in instruction
+    assert "使用中文" in instruction and "0.90" not in instruction
+    assert "保持所选说话人的音色、身份" in instruction
     assert "每句话之间" in instruction and "舒缓" in instruction
 
 
@@ -58,7 +59,12 @@ def test_provider_switch_keeps_config_and_reports_missing_features(
 
 
 def test_qwen_adapter_passes_style_without_speaking_it(monkeypatch):
+    import sys
+
     monkeypatch.setenv("ROBOT_TTS_BACKEND", "qwen3-mlx")
+    core = SimpleNamespace(random=SimpleNamespace(seed=lambda seed: None))
+    monkeypatch.setitem(sys.modules, "mlx.core", core)
+    monkeypatch.setitem(sys.modules, "mlx", SimpleNamespace(core=core))
     calls = []
 
     def generate(**kwargs):
@@ -200,19 +206,21 @@ def test_published_voice_stays_fixed_across_engine_switch(system, monkeypatch, l
     assert manifest["ttsProfile"] == LEGACY_PROFILE
     sid = manifest["segments"][0]["id"]
     url = f"/v1/resources/{rid}/audio/{sid}?revisionId={revision}"
-    if legacy:
-        # 升级前的发布记录没有 ttsProfile，仍按原 Kokoro 解释。
-        with store.transaction() as db:
-            body = json.loads(
-                db.execute(
-                    "SELECT body FROM revisions WHERE id=?", (revision,)
-                ).fetchone()[0]
-            )
+    # 模拟升级前发布快照：无语义分组清单；已有缓存仍可读取。
+    with store.transaction() as db:
+        body = json.loads(
+            db.execute("SELECT body FROM revisions WHERE id=?", (revision,)).fetchone()[
+                0
+            ]
+        )
+        body.pop("segmentationProfile", None)
+        if legacy:
             body.pop("ttsProfile")
-            db.execute(
-                "UPDATE revisions SET body=? WHERE id=?", (json.dumps(body), revision)
-            )
-    run = AsyncMock(return_value={"audio": base64.b64encode(b"new-qwen-wave").decode()})
+        db.execute(
+            "UPDATE revisions SET body=? WHERE id=?", (json.dumps(body), revision)
+        )
+    new_wave = wav_result(np.zeros(2400), 24000).wav
+    run = AsyncMock(return_value={"audio": base64.b64encode(new_wave).decode()})
     monkeypatch.setattr(client.app.state.tts_worker, "run", run)
     monkeypatch.setenv("ROBOT_TTS_BACKEND", "qwen3-mlx")
     # 旧版未缓存段落不能突然改用新声音。
@@ -231,7 +239,7 @@ def test_published_voice_stays_fixed_across_engine_switch(system, monkeypatch, l
         client.get(
             f"/v1/resources/{rid}/audio/{sid}?revisionId={new_revision}", headers=rh
         ).content
-        == b"new-qwen-wave"
+        == new_wave
     )
     assert path.read_bytes() == b"old-kokoro-wave"
     run.assert_awaited_once()

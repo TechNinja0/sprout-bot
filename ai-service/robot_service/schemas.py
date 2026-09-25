@@ -59,11 +59,11 @@ class Voice(Strict):
     speed: float = Field(default=1.0, ge=0.7, le=1.3)
     volume: float = Field(default=0.5, ge=0, le=1)
     style: Literal["neutral", "gentle", "cheerful", "storytelling", "soothing"] = (
-        "gentle"
+        "neutral"
     )
-    storyStyle: Literal["neutral", "gentle", "cheerful", "storytelling", "soothing"] = (
-        "storytelling"
-    )
+    storyStyle: Literal[
+        "default", "neutral", "gentle", "cheerful", "storytelling", "soothing"
+    ] = "default"
     instruction: str = Field(default="", max_length=200)
 
 
@@ -209,6 +209,8 @@ class Page(Strict):
     reviewed: bool = False
     skip: bool = False
     pronunciation: dict[str, str] = Field(default_factory=dict, max_length=100)
+    synthesisVariant: int = Field(default=0, ge=0, le=1000000)
+    breakBefore: bool = False
 
 
 class ResourceDraft(Strict):
@@ -232,6 +234,8 @@ class ResourceDraft(Strict):
     auditioned: bool = False
     voice: Voice = Field(default_factory=Voice)
     pages: list[Page] = Field(default_factory=list, max_length=300)
+    voiceSource: Literal["shared", "custom"] = "custom"
+    readingMode: Literal["follow_pages", "continuous"] = "follow_pages"
 
     @model_validator(mode="after")
     def age_range(self):

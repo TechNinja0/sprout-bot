@@ -580,12 +580,15 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         }
     }
     private suspend fun say(text:String,ticket:Long,story:Boolean=false) {
+        val voice=JSONObject((config.optJSONObject("voice") ?: JSONObject()).toString())
         if(text.isBlank() || !session.valid(ticket))return
         replyIsStory=story
         session.speaking(ticket)
-        val chunks=text.take(600).split(Regex("(?<=[。！？.!?])")).map { it.trim() }.filter { it.isNotEmpty() }
+        val reply=text.take(600)
+        val language=SpeechSegmentation.language(reply)
+        val chunks=SpeechSegmentation.split(reply)
         coroutineScope {
-            fun load(chunk:String)=async(Dispatchers.IO) { api.raw("/v1/speech/reply","POST",JSONObject().put("text",chunk).put("voice",config.optJSONObject("voice") ?: JSONObject()).put("story",story).toBody()) }
+            fun load(chunk:String)=async(Dispatchers.IO) { api.raw("/v1/speech/reply","POST",JSONObject().put("text",chunk).put("voice",voice).put("story",story).put("language",language).toBody()) }
             var pending=load(chunks.first())
             for(i in chunks.indices) {
                 val audio=pending.await()

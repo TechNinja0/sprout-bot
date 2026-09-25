@@ -1,6 +1,7 @@
 """语音模型驻留在可销毁的独立进程；父进程有界等待，原始输入不落日志。"""
 
 import base64
+import binascii
 import io
 import json
 import os
@@ -15,6 +16,11 @@ MODELS = {}
 
 def execute(task):
     root = Path(task["root"])
+    if task["kind"] in ("warm", "asr", "align"):
+        import onnxruntime
+
+        # VAD依赖的ONNX Runtime无需遥测；同时避免macOS退出时遥测线程销毁竞态。
+        onnxruntime.disable_telemetry_events()
     if task["kind"] == "warm":
         # 项目自有短句仅在内存中预热，避免用家庭录音作初始化材料。
         audio = {"audio": task["audio"]}
@@ -62,6 +68,60 @@ def execute(task):
         return {
             "audio": base64.b64encode(result.wav).decode(),
             "durationMs": result.duration_ms,
+        }
+    if task["kind"] == "align":
+        # 独立于 ASR 后端选择：对齐始终使用本地 small，不删静音或改变时间轴。
+        from .speech_alignment import _quiet, _read_pcm16
+
+        if task.get("language") not in ("zh", "en"):
+            return {"words": []}
+        try:
+            pcm = _read_pcm16(base64.b64decode(task["audio"], validate=True))
+        except (binascii.Error, ValueError, TypeError, KeyError):
+            return {"words": []}
+        if pcm is None or _quiet(pcm.samples):
+            return {"words": []}
+        # Whisper 固定接收 16kHz；只重采样识别副本，返回时间仍对应原 WAV。
+        samples = pcm.samples.astype(np.float32).mean(axis=1) / 32768
+        if pcm.rate != 16000:
+            samples = np.interp(
+                np.arange(round(pcm.frames * 16000 / pcm.rate)) * pcm.rate / 16000,
+                np.arange(pcm.frames),
+                samples,
+            ).astype(np.float32)
+        from faster_whisper import WhisperModel
+
+        key = ("asr", str(root))
+        model = MODELS.get(key)
+        if model is None:
+            model = WhisperModel(
+                str(root / "faster-whisper-small"),
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=4,
+                local_files_only=True,
+            )
+            MODELS[key] = model
+        segments, _ = model.transcribe(
+            samples,
+            language=task["language"],
+            beam_size=5,
+            word_timestamps=True,
+            temperature=0,
+            condition_on_previous_text=False,
+            vad_filter=False,
+        )
+        return {
+            "words": [
+                {
+                    "word": word.word,
+                    "start": float(word.start),
+                    "end": float(word.end),
+                    "probability": float(word.probability),
+                }
+                for segment in segments
+                for word in (segment.words or [])
+            ]
         }
     if task["kind"] == "asr":
         with wave.open(io.BytesIO(base64.b64decode(task["audio"])), "rb") as wav:

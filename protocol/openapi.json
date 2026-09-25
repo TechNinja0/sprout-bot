@@ -108,6 +108,127 @@
         }
       }
     },
+    "/v1/resources/{rid}/speech-plan": {
+      "get": {
+        "summary": "Draft Speech Plan",
+        "operationId": "draft_speech_plan_v1_resources__rid__speech_plan_get",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "expectedVersion",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Expectedversion"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources/{rid}/speech-preview/{segment_id}": {
+      "get": {
+        "summary": "Draft Speech Preview",
+        "operationId": "draft_speech_preview_v1_resources__rid__speech_preview__segment_id__get",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "segment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Segment Id"
+            }
+          },
+          {
+            "name": "expectedVersion",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Expectedversion"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/kws/keywords": {
       "get": {
         "summary": "Keywords",
@@ -1654,6 +1775,82 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/latest": {
+      "get": {
+        "summary": "Latest",
+        "operationId": "latest_v1_app_latest_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/download": {
+      "get": {
+        "summary": "Download",
+        "operationId": "download_v1_app_download_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4992,6 +5189,18 @@
             "type": "object",
             "maxProperties": 100,
             "title": "Pronunciation"
+          },
+          "synthesisVariant": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Synthesisvariant",
+            "default": 0
+          },
+          "breakBefore": {
+            "type": "boolean",
+            "title": "Breakbefore",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -5533,6 +5742,24 @@
             "type": "array",
             "maxItems": 300,
             "title": "Pages"
+          },
+          "voiceSource": {
+            "type": "string",
+            "enum": [
+              "shared",
+              "custom"
+            ],
+            "title": "Voicesource",
+            "default": "custom"
+          },
+          "readingMode": {
+            "type": "string",
+            "enum": [
+              "follow_pages",
+              "continuous"
+            ],
+            "title": "Readingmode",
+            "default": "follow_pages"
           }
         },
         "additionalProperties": false,
@@ -5619,6 +5846,21 @@
             "type": "boolean",
             "title": "Story",
             "default": false
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "zh",
+                  "en"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
           }
         },
         "additionalProperties": false,
@@ -5810,11 +6052,12 @@
               "soothing"
             ],
             "title": "Style",
-            "default": "gentle"
+            "default": "neutral"
           },
           "storyStyle": {
             "type": "string",
             "enum": [
+              "default",
               "neutral",
               "gentle",
               "cheerful",
@@ -5822,7 +6065,7 @@
               "soothing"
             ],
             "title": "Storystyle",
-            "default": "storytelling"
+            "default": "default"
           },
           "instruction": {
             "type": "string",

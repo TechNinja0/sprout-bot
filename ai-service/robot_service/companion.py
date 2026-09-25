@@ -372,7 +372,14 @@ async def debug_speech(body: Speak, request: Request, user=Depends(principal)):
     from .intelligence import speech
 
     return Response(
-        await speech(request, body.text, body.voice, story=body.story, background=True),
+        await speech(
+            request,
+            body.text,
+            body.voice,
+            story=body.story,
+            background=True,
+            language=body.language,
+        ),
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )

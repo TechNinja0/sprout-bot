@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 
+class UnstableSpeechError(RuntimeError):
+    code = "tts_unstable_pace"
+    retryable = True
+
+
 class SpeechWorker:
     def __init__(self, module="robot_service.model_worker", python=None):
         self.process = None
@@ -49,11 +54,19 @@ class SpeechWorker:
                 raise RuntimeError("speech worker closed")
             result = json.loads(line)
             if "error" in result:
+                if (
+                    result.get("code") == "tts_unstable_pace"
+                    and result["error"] == "SynthesisRetryableError"
+                ):
+                    raise UnstableSpeechError("语音节奏异常")
                 raise RuntimeError("speech model failure")
             return result
 
         try:
             return await asyncio.wait_for(exchange(), timeout)
+        except UnstableSpeechError:
+            # 推理已正常结束并消费响应，保留模型；重新生成版本才能获得新候选。
+            raise
         except BaseException:
             await self.close()
             raise

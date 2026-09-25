@@ -12,10 +12,11 @@ import time
 import wave
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 from pydantic import Field
@@ -77,7 +78,17 @@ async def worker(request, task, timeout=90, background=False, bulk=False):
         return await channel.run(task, timeout)
     except TimeoutError:
         fail(504, "本地语音处理超时")
-    except (RuntimeError, OSError, ValueError):
+    except RuntimeError as exc:
+        from .worker_channel import UnstableSpeechError
+
+        if isinstance(exc, UnstableSpeechError):
+            raise HTTPException(
+                503,
+                "这段语音未通过节奏检查，请调整语气或在图书草稿中重新生成",
+                headers={"X-Speech-Error": exc.code, "X-Speech-Retryable": "true"},
+            ) from exc
+        fail(503, "本地语音模型未就绪或处理失败")
+    except (OSError, ValueError):
         fail(503, "本地语音模型未就绪或处理失败")
     finally:
         sem.release()
@@ -123,11 +134,22 @@ def quiet_sentences(sentences, question):
     return result
 
 
-async def speech(request, text, voice, story=False, background=False, bulk=False):
+async def speech(
+    request,
+    text,
+    voice,
+    story=False,
+    background=False,
+    bulk=False,
+    language=None,
+    variant=0,
+):
     if not text.strip():
         fail(422, "没有可朗读文字")
     try:
-        make_request(text, voice.model_dump(), story)
+        make_request(
+            text, voice.model_dump(), story, language=language, variant=variant
+        )
     except ValueError as exc:
         fail(422, str(exc))
     result = await worker(
@@ -137,13 +159,23 @@ async def speech(request, text, voice, story=False, background=False, bulk=False
             "text": text,
             "voice": voice.model_dump(),
             "story": story,
+            "language": language,
+            "variant": variant,
         },
         background=background,
         bulk=bulk,
     )
-    from .tts import output_quality
+    from .tts import backend_name, output_quality
 
-    return output_quality(base64.b64decode(result["audio"]), voice.quality)
+    try:
+        audio = base64.b64decode(result["audio"], validate=True)
+        if backend_name() == "qwen3-mlx":
+            from .speech_audio import finish_audio
+
+            audio = await asyncio.to_thread(finish_audio, audio, voice.speed)
+        return output_quality(audio, voice.quality)
+    except (ValueError, wave.Error, EOFError):
+        fail(503, "本地语音返回的音频无效，请重试")
 
 
 @router.get("/models")
@@ -195,12 +227,20 @@ class Speak(Strict):
     text: str = Field(min_length=1, max_length=MAX_REPLY_CHARS)
     voice: Voice = Field(default_factory=Voice)
     story: bool = False
+    language: Literal["zh", "en"] | None = None
 
 
 @router.post("/speech/preview")
 async def preview(body: Speak, request: Request, user=Depends(parent)):
     return Response(
-        await speech(request, body.text, body.voice, story=body.story, background=True),
+        await speech(
+            request,
+            body.text,
+            body.voice,
+            story=body.story,
+            background=True,
+            language=body.language,
+        ),
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )
@@ -820,7 +860,9 @@ async def execute_turn(body: Turn, request: Request, user):
 async def reply(body: Speak, request: Request, user=Depends(robot)):
     # 机器人输出同样经过本机的时段/取消代际检查；服务不扩大权限。
     return Response(
-        await speech(request, body.text, body.voice, story=body.story),
+        await speech(
+            request, body.text, body.voice, story=body.story, language=body.language
+        ),
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )
