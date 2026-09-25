@@ -13,7 +13,7 @@ android {
     namespace = "org.familyrobot.app"
     compileSdk = 36
     defaultConfig {
-        applicationId = "org.familyrobot.app"
+        applicationId = "com.robot.app"
         minSdk = 29
         targetSdk = 36
         versionCode = 2

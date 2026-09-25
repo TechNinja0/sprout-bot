@@ -4,6 +4,8 @@
 
 ## 0.1.0（首个正式版）
 
+- 应用更名为「爱陪伴」，安装包标识更换为 `com.robot.app`（旧版 `org.familyrobot.app`）；官网安装包文件名统一为 `<应用名>-v<版本号>.apk`。
+- 注意：新旧包名不同，已安装旧版（小伙伴机器人）的手机会并存安装而不是覆盖升级，需先卸载旧版（会清除本机离线内容与配对）再安装「爱陪伴」。
 - 首个正式签名发行版（versionCode 2）：`bash scripts/release_app.sh --release "更新说明"` 构建并自动发布到官网与家长端升级通道；签名材料位于 `runtime/android-signing/`（随代码仓库维护，建议同时离线备份）。
 - 发布渠道区分 debug / release；官网与家庭服务升级接口均指向最新正式版，官网保留历史版本供首次安装或对照下载。
 - 下载官网支持 launchd 托管（`release_site_service.sh install`）：登录自启、异常退出自动拉起，已在 8767 实机验证；不经 bash 以绕过 macOS 对 launchd 进程读取项目目录的隐私限制。
