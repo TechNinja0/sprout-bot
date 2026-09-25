@@ -35,6 +35,14 @@ def safe_name(value: str) -> str:
     return re.sub(r"[^0-9A-Za-z._-]", "-", value)[:80]
 
 
+def app_display_name() -> str:
+    """应用显示名（与手机桌面一致）：用于安装包文件名与官网标题。"""
+    text = (ROOT / "android-app/app/src/main/AndroidManifest.xml").read_text()
+    match = re.search(r'android:label="([^"]+)"', text)
+    name = re.sub(r'[\\/:*?"<>|\s]+', "-", match.group(1).strip()) if match else ""
+    return name or "app"
+
+
 def gradle_version():
     text = (ROOT / "android-app/app/build.gradle.kts").read_text()
     code = re.search(r"versionCode\s*=\s*(\d+)", text)
@@ -100,7 +108,7 @@ def cmd_archive(args) -> int:
             print("该版本已发布；重复发布需 --force", file=sys.stderr)
             return 2
 
-    file_name = f"{version_code}-{safe_name(version_name)}.apk"
+    file_name = f"{app_display_name()}-v{safe_name(version_name)}.apk"
     dest = releases / file_name
     temp = releases / (file_name + ".partial")
     shutil.copy2(apk, temp)
@@ -129,6 +137,46 @@ def cmd_archive(args) -> int:
     print(f"文件：{dest}")
     print(f"SHA256：{checksum}")
     print("官网刷新后即可下载；家长端 App 启动会自动提示升级。")
+    return 0
+
+
+def cmd_bump(args) -> int:
+    """把 build.gradle.kts 的版本号向前推进一步：versionCode +1，versionName 默认 patch +1。"""
+    path = Path(args.gradle_file)
+    if not path.is_file():
+        print(f"找不到构建配置：{path}", file=sys.stderr)
+        return 2
+    text = path.read_text()
+    code_match = re.search(r"versionCode\s*=\s*(\d+)", text)
+    name_match = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+    if not code_match or not name_match:
+        print("无法解析当前 versionCode / versionName", file=sys.stderr)
+        return 2
+    new_code = int(code_match.group(1)) + 1
+    current = name_match.group(1)
+    if args.set:
+        new_name = args.set.strip()
+        if not re.fullmatch(r"[0-9A-Za-z._-]{1,40}", new_name):
+            print("版本名只允许字母、数字、点、下划线与连字符", file=sys.stderr)
+            return 2
+    else:
+        parsed = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(.*)", current)
+        if not parsed:
+            print(f"无法自动递增版本名 {current}，请用 --set 指定", file=sys.stderr)
+            return 2
+        major, minor, patch, suffix = parsed.groups()
+        if args.part == "major":
+            new_name = f"{int(major) + 1}.0.0{suffix}"
+        elif args.part == "minor":
+            new_name = f"{major}.{int(minor) + 1}.0{suffix}"
+        else:
+            new_name = f"{major}.{minor}.{int(patch) + 1}{suffix}"
+    text = re.sub(r"versionCode\s*=\s*\d+", f"versionCode = {new_code}", text, count=1)
+    text = re.sub(r'versionName\s*=\s*"[^"]+"', f'versionName = "{new_name}"', text, count=1)
+    tmp = path.with_name(path.name + ".partial")
+    tmp.write_text(text)
+    tmp.replace(path)
+    print(f"版本已更新：{new_name}（versionCode {new_code}）")
     return 0
 
 
@@ -186,6 +234,7 @@ def create_site_app(releases: Path):
     def index(request: Request):
         manifest = load_manifest(app.state.releases)
         latest, history = manifest["latest"], manifest["history"]
+        app_name = html.escape(app_display_name())
         rows = ""
         for entry in history:
             rows += (
@@ -215,7 +264,7 @@ def create_site_app(releases: Path):
         page = f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>小伙伴机器人 · 应用下载</title>
+<title>{app_name} · 应用下载</title>
 <style>
 body{{font-family:-apple-system,"PingFang SC",sans-serif;margin:0;background:#f5f7f5;color:#182e2d}}
 main{{max-width:560px;margin:0 auto;padding:28px 18px 60px}}
@@ -230,7 +279,7 @@ td{{padding:9px 4px;border-bottom:1px solid #e1e9e4}}
 a{{color:#196956}}
 code{{background:#e9f0eb;border-radius:6px;padding:2px 6px}}
 </style></head><body><main>
-<h1>小伙伴机器人 · 应用下载</h1>
+<h1>{app_name} · 应用下载</h1>
 <p class="meta">家庭局域网发布中心 · {html.escape(str(request.base_url).rstrip('/'))}</p>
 {card}
 <section class="card">
@@ -275,6 +324,12 @@ def main(argv=None) -> int:
     archive.add_argument("--keep", type=int, default=DEFAULT_KEEP)
     archive.add_argument("--force", action="store_true")
     archive.set_defaults(func=cmd_archive)
+
+    bump = sub.add_parser("bump", help="递增 Android 版本号（versionCode +1，versionName 默认 patch +1）")
+    bump.add_argument("--gradle-file", default=str(ROOT / "android-app/app/build.gradle.kts"))
+    bump.add_argument("--part", choices=["patch", "minor", "major"], default="patch")
+    bump.add_argument("--set", metavar="X.Y.Z", help="直接指定新的 versionName（如升 0.2.0）")
+    bump.set_defaults(func=cmd_bump)
 
     serve = sub.add_parser("serve", help="启动局域网下载官网")
     serve.add_argument("--bind", default="0.0.0.0")

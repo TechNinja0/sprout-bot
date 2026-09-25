@@ -13,15 +13,19 @@
 
 ### 发布新版本（构建即自动发布）
 
+每次发布会自动递增版本号并写回 `build.gradle.kts`（无需手动改）：`versionCode` 始终 `+1`，`versionName` 默认 patch `+1`（0.1.0 → 0.1.1）。
+
 ```bash
-# 修改 android-app/app/build.gradle.kts 中的 versionCode / versionName 后：
-bash scripts/release_app.sh --release "本次更新说明"   # 正式签名版（家庭使用）
-bash scripts/release_app.sh "本次更新说明"             # debug 版（本机调试）
+bash scripts/release_app.sh --release "本次更新说明"             # 正式签名版（家庭使用）
+bash scripts/release_app.sh --release --version 0.2.0 "更新说明" # 升 minor/major 时手动指定 versionName
+bash scripts/release_app.sh "本次更新说明"                       # debug 版（本机调试）
+bash scripts/release_app.sh --no-bump "更新说明"                 # 不递增版本号（重发当前版本，配合 --force）
 ```
 
 该脚本会构建对应变体（`--release` 读取 `runtime/android-signing/` 正式签名）并把 APK 归档到 `runtime/releases/`：
 - 版本号来自 `build.gradle.kts`，**versionCode 必须递增**；重复发布同版本需 `--force`；
 - 自动计算 SHA256、写入 `manifest.json`、保留最近 3 个安装包；
+- 安装包文件名为 `<应用名>-v<版本号>.apk`（应用名取自 AndroidManifest 的 `android:label`）；
 - **发布不需要重启官网服务**，网页与 App 检查即时生效。
 
 单独归档一个已有 APK（例如 CI 构建产物）：

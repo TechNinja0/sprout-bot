@@ -135,3 +135,35 @@ def test_site_endpoints(site):
     assert qr.status_code == 200
     assert qr.headers["content-type"] == "image/png"
     assert qr.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_bump_increments_patch_and_code(site, tmp_path):
+    module, _ = site
+    gradle = tmp_path / "build.gradle.kts"
+    gradle.write_text('android {\n    versionCode = 7\n    versionName = "0.1.0"\n}\n')
+    assert module.main(["bump", "--gradle-file", str(gradle)]) == 0
+    text = gradle.read_text()
+    assert "versionCode = 8" in text
+    assert 'versionName = "0.1.1"' in text
+
+
+def test_bump_supports_part_set_and_suffix(site, tmp_path):
+    module, _ = site
+    gradle = tmp_path / "build.gradle.kts"
+    gradle.write_text('versionCode = 2\nversionName = "0.1.0-dev"\n')
+    assert module.main(["bump", "--gradle-file", str(gradle), "--part", "minor"]) == 0
+    assert 'versionName = "0.2.0-dev"' in gradle.read_text()
+    assert module.main(["bump", "--gradle-file", str(gradle), "--set", "1.0.0"]) == 0
+    text = gradle.read_text()
+    assert 'versionName = "1.0.0"' in text
+    assert "versionCode = 4" in text
+
+
+def test_bump_rejects_bad_input(site, tmp_path):
+    module, _ = site
+    gradle = tmp_path / "build.gradle.kts"
+    gradle.write_text('versionCode = 2\nversionName = "oops"\n')
+    assert module.main(["bump", "--gradle-file", str(gradle)]) == 2
+    assert module.main(["bump", "--gradle-file", str(gradle), "--set", "bad/name"]) == 2
+    missing = tmp_path / "nope.gradle.kts"
+    assert module.main(["bump", "--gradle-file", str(missing)]) == 2
