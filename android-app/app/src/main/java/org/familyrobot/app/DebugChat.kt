@@ -108,6 +108,7 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
                 Text(if(outgoing)"我" else "小伙伴",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Surface(shape=if(outgoing)RoundedCornerShape(17.dp,4.dp,17.dp,17.dp) else RoundedCornerShape(4.dp,17.dp,17.dp,17.dp),color=if(outgoing)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,border=if(outgoing)null else BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){Column(Modifier.padding(horizontal=15.dp,vertical=13.dp)){
                     Text(row.optString("text"),fontSize=14.sp,lineHeight=24.sp)
+                    row.optJSONObject("knowledge")?.let{Text("知识库 · ${it.optString("source")}",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                     if(outgoing&&row.optBoolean("voice"))TextButton(onClick={voiceMessages[row.optString("id")]?.let(play)},enabled=!busy&&!recording&&voiceMessages.containsKey(row.optString("id"))){Text("播放语音")}
                     if(!outgoing&&row.has("recordId"))TextButton(onClick={speak(row)},enabled=!busy&&!recording){Text("播放 / 再次播放")}
                 }}

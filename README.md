@@ -33,6 +33,8 @@
 
 ## 开发中的可运行工程
 
+Apple Silicon Mac 服务端可在项目根目录运行 `bash scripts/setup_mac.sh` 一键检查、安装环境和模型并启动服务；之后用 `bash scripts/setup_mac.sh --check` 只读复查。无需 Android 开发环境，首次系统工具安装可能需要交互确认，详见 [Mac 服务端一键部署](docs/engineering/Mac服务端一键部署.md)。
+
 已开始 `0.1.0-dev` 实现：`android-app/` 单APK、`ai-service/` 本地服务与模型、`motion-firmware/` 运动安全核心。当前不是正式儿童产品发行版；真实儿童、实体图书与长时稳定性验收单独记录，不能用自动化测试替代。
 
 - [工程维护手册](docs/engineering/工程维护手册.md)：搭建、模型安装、连接、分工、备份恢复、升级回滚与排障。

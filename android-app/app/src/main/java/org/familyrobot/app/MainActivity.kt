@@ -26,6 +26,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -250,7 +252,7 @@ class MainActivity:ComponentActivity() {
     }
     @Composable private fun Parent(connection:JSONObject,disconnect:()->Unit) {
         val api=remember { Api(connection) };val scope=rememberCoroutineScope()
-        var tab by remember { mutableStateOf("首页") };var message by remember { mutableStateOf("") };var busy by remember { mutableStateOf(false) }
+        var tab by rememberSaveable { mutableStateOf("首页") };var message by remember { mutableStateOf("") };var busy by remember { mutableStateOf(false) }
         var config by remember { mutableStateOf(JSONObject()) };var version by remember { mutableIntStateOf(0) }
         var items by remember { mutableStateOf(JSONArray()) };var selected by remember { mutableStateOf<String?>(null) }
         var data by remember { mutableStateOf(JSONArray()) };var models by remember { mutableStateOf(JSONObject()) }
@@ -259,7 +261,7 @@ class MainActivity:ComponentActivity() {
         var editing by remember { mutableStateOf(false) }
         var savedConfig by remember{mutableStateOf("")};var pendingTab by remember{mutableStateOf<String?>(null)};var reloadParent by remember{mutableStateOf(false)};var revokeParent by remember{mutableStateOf(false)}
         val rid=connection.getString("robotId")
-        var routeHistory by remember{mutableStateOf(listOf<String>())};var pendingBack by remember{mutableStateOf(false)}
+        var routeHistory by rememberSaveable{mutableStateOf(listOf<String>())};var pendingBack by remember{mutableStateOf(false)}
         fun performSelect(name:String,backwards:Boolean=false) {
             routeHistory=if(name in listOf("首页","设置","记录"))emptyList() else if(backwards)routeHistory.dropLast(1) else if(name!=tab)routeHistory+tab else routeHistory
             stopPreview();refreshVersion++;data=JSONArray();summary=JSONObject();config=JSONObject();message="";selected=null;tab=name }
@@ -283,13 +285,14 @@ class MainActivity:ComponentActivity() {
             result.optJSONObject("models")?.let { models=it }
             result.optJSONObject("configuration")?.let { config=it.getJSONObject("config");version=it.getInt("version");savedConfig=config.toString() }
             }
-        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","连接","唤醒与互动","AI 提示词")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
+        LaunchedEffect(tab,selected) { if(selected==null && tab !in listOf("设置","主题颜色","记录","调试","连接","唤醒与互动","AI 提示词","知识库")) { busy=true;try { refresh() } catch(e:CancellationException) { throw e } catch(e:Exception) { message=e.message ?: "连接失败" } finally { busy=false } } }
         pendingTab?.let{target->AlertDialog(onDismissRequest={pendingTab=null},title={Text("有未保存修改")},text={Text("离开会放弃当前修改。可以继续编辑并保存后再离开。")},confirmButton={TextButton(onClick={pendingTab=null;performSelect(target,pendingBack)}){Text("放弃并离开")}},dismissButton={TextButton(onClick={pendingTab=null}){Text("继续编辑")}})}
         if(reloadParent)AlertDialog(onDismissRequest={reloadParent=false},title={Text("重新读取设置？")},text={Text("当前未保存的修改将被已生效配置替换。")},confirmButton={TextButton(onClick={reloadParent=false;run{refresh()}}){Text("重新读取")}},dismissButton={TextButton(onClick={reloadParent=false}){Text("保留修改")}})
         if(revokeParent)AlertDialog(onDismissRequest={revokeParent=false},title={Text("解除本手机绑定？")},text={Text("解除后需要在机器人上重新生成配对二维码才能恢复管理。")},confirmButton={TextButton(onClick={revokeParent=false;run{withContext(Dispatchers.IO){api.json("/v1/devices/${connection.getString("deviceId")}","DELETE")};vault.remove("parent");disconnect()}}){Text("解除绑定")}},dismissButton={TextButton(onClick={revokeParent=false}){Text("取消")}})
         if(selected!=null) { if(editing)ResourceEditor(api,selected!!,rid) { editing=false } else ResourceOverview(api,selected!!,rid,{editing=true},{selected=null});return }
         fun back(){selectTab(routeHistory.lastOrNull() ?: if(tab in listOf("成长","声音","隐私","记忆","摘要","维护","备份","绑定","唤醒与互动","AI 提示词","记录保存","主题颜色","调试","本机身份"))"设置" else "首页",true)}
         BackHandler(enabled=tab!="首页"){back()}
+        if(tab=="知识库"){KnowledgeScreen(connection){back()};return}
         if(tab=="主题颜色"){AppearancePage(themeMode,::chooseTheme){back()};return}
         if(tab in listOf("唤醒与互动","AI 提示词")){DeviceSettingsScreen(connection,false,tab,{back()},{playPreview(it)});return}
         if(tab=="导入任务"){ImportJobsScreen(connection,{back()},{selected=it;editing=true});return}
@@ -306,7 +309,7 @@ class MainActivity:ComponentActivity() {
             val bytes=withContext(Dispatchers.IO) { contentResolver.openInputStream(uri)!!.use { readLimited(it,32*1024*1024+1) } }
             require(bytes.size<=32*1024*1024) { "手机恢复限制32MB；请使用电脑恢复工具" }
             val result=withContext(Dispatchers.IO) { api.upload("/v1/backup/restore","restore.zip",bytes,"application/zip",mapOf("X-Recovery" to recovery.trim())) }
-            recovery="";restoreUri=null;message="已恢复 ${result.getInt("restoredDrafts")} 个待审核草稿"
+            recovery="";restoreUri=null;message="已恢复 ${result.getInt("restoredDrafts")} 个资源草稿、${result.optInt("restoredKnowledgeDrafts")} 条知识草稿，请审核后发布"
         } }
         val backup=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if(uri!=null)run { val bytes=withContext(Dispatchers.IO) { api.raw("/v1/backup") };contentResolver.openOutputStream(uri)!!.use { it.write(bytes) };message="备份已保存；请保管在私有位置" } }
         Page(mapOf("首页" to "家长管理","成长" to "孩子与成长","隐私" to "隐私与权限","摘要" to "使用摘要","维护" to "诊断与服务能力","备份" to "数据与备份","绑定" to "绑定与恢复","离线内容" to "空间与离线副本","记录保存" to "对话记录保存")[tab] ?: tab,message,busy,onBack=if(tab in listOf("首页","设置"))null else ({back()}),bottom=if(tab in listOf("首页","设置","资源库"))({ParentNavigation(tab){selectTab(it)}}) else null) {
@@ -325,6 +328,7 @@ class MainActivity:ComponentActivity() {
                     SectionHeading("使用与数据")
                     DesignGroup {
                         DesignRow("隐私与权限","相机、静音、原创故事与动态"){selectTab("隐私")}
+                        DesignRow("知识库","儿童百科、家庭知识与发布审核",icon="book"){selectTab("知识库")}
                         DesignRow("偏好与记忆","待审核、已批准、儿童撤回"){selectTab("记忆")}
                         DesignRow("对话记录保存","保留时长与删除",icon="chat"){selectTab("记录保存")}
                         DesignRow("数据与备份","备份、恢复、空间管理",icon="download"){selectTab("备份")}
@@ -781,7 +785,7 @@ class MainActivity:ComponentActivity() {
     val pageScroll=scroll ?: remember(title){ScrollState(0)}
     Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) { Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal)).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start=16.dp,end=20.dp,top=9.dp,bottom=18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            if(onBack!=null)IconButton(onClick=onBack,modifier=Modifier.size(44.dp)){UiIcon("back",color=MaterialTheme.colorScheme.onSurface)}
+            if(onBack!=null)IconButton(onClick=onBack,modifier=Modifier.size(44.dp).semantics{contentDescription="返回"}){UiIcon("back",color=MaterialTheme.colorScheme.onSurface)}
             Text(title,fontSize=21.sp,fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))
             Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.primaryContainer){Box(Modifier.size(34.dp),contentAlignment=Alignment.Center){UiIcon("bot",Modifier.size(16.dp))}}
         }

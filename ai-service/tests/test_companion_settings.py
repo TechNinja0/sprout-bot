@@ -129,7 +129,7 @@ def test_prompt_session_snapshot(system):
             c.post(
                 "/v1/turns",
                 headers=rh,
-                json={"sessionId": "child-session-0001", "text": "天空是什么颜色"},
+                json={"sessionId": "child-session-0001", "text": "聊聊晴天"},
             ).status_code
             == 200
         )
@@ -140,7 +140,7 @@ def test_prompt_session_snapshot(system):
             c.post(
                 "/v1/turns",
                 headers=rh,
-                json={"sessionId": "child-session-0001", "text": "云是什么颜色"},
+                json={"sessionId": "child-session-0001", "text": "聊聊云朵"},
             ).status_code
             == 200
         )
@@ -148,7 +148,7 @@ def test_prompt_session_snapshot(system):
             c.post(
                 "/v1/turns",
                 headers=rh,
-                json={"sessionId": "child-session-0002", "text": "天空是什么颜色"},
+                json={"sessionId": "child-session-0002", "text": "聊聊晴天"},
             ).status_code
             == 200
         )

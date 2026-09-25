@@ -35,4 +35,4 @@ jobs:
       - uses: android-actions/setup-android@v3
       - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - run: python scripts/install_models.py --only kws,vad,aar
-      - run: android-app/gradlew -p android-app :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+      - run: android-app/gradlew -p android-app :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug

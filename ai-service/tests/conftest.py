@@ -5,6 +5,12 @@ from fastapi.testclient import TestClient
 from robot_service.app import create_app
 
 
+@pytest.fixture(autouse=True)
+def no_automatic_audio_models(monkeypatch):
+    # 单测显式驱动持久队列，避免加载真实模型或产生跨测试竞态。
+    monkeypatch.setenv("ROBOT_PREPARE_AUDIO", "0")
+
+
 @pytest.fixture
 def system(tmp_path):
     app = create_app(tmp_path)

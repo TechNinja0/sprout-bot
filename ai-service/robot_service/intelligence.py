@@ -22,12 +22,19 @@ from pydantic import Field
 
 from .auth import fail, parent, principal, robot
 from .extract import ocr
-from .library import lookup, published, scope_notice
+from .library import lookup
 from .local_models import TEXT_MODEL, VISION_MODEL
+from .reply_policy import (
+    MAX_REPLY_CHARS,
+    STORY_PREFIX,
+    bound_reply,
+    generation_options,
+    turn_guidance,
+)
 from .schemas import Lookup, Strict, Voice
 from .store import digest, dumps
-from .tts import LEGACY_PROFILE, make_request, render_profile
 from .tts import capabilities as tts_capabilities
+from .tts import make_request
 from .vision import VisualObservation, refers_to_previous_object, select_previous_object
 from .vision import evaluate as render_vision
 from .vision import instructions as vision_instructions
@@ -41,7 +48,7 @@ def root(request):
     )
 
 
-async def worker(request, task, timeout=90, background=False):
+async def worker(request, task, timeout=90, background=False, bulk=False):
     sem = (
         request.app.state.library_slots if background else request.app.state.model_slots
     )
@@ -56,7 +63,9 @@ async def worker(request, task, timeout=90, background=False):
     # 对话在当前段落结束后优先；不复制大模型，不允许无限排队。
     try:
         if task.get("kind") == "tts":
-            await sem.acquire(background=background, timeout=1 if background else 10)
+            await sem.acquire(
+                background=background, bulk=bulk, timeout=1 if background else 10
+            )
         else:
             await asyncio.wait_for(sem.acquire(), 1)
     except TimeoutError:
@@ -112,7 +121,7 @@ def quiet_sentences(sentences, question):
     return result
 
 
-async def speech(request, text, voice, story=False, background=False):
+async def speech(request, text, voice, story=False, background=False, bulk=False):
     if not text.strip():
         fail(422, "没有可朗读文字")
     try:
@@ -128,6 +137,7 @@ async def speech(request, text, voice, story=False, background=False):
             "story": story,
         },
         background=background,
+        bulk=bulk,
     )
     from .tts import output_quality
 
@@ -180,7 +190,7 @@ async def health(request: Request, user=Depends(principal)):
 
 
 class Speak(Strict):
-    text: str = Field(min_length=1, max_length=600)
+    text: str = Field(min_length=1, max_length=MAX_REPLY_CHARS)
     voice: Voice = Field(default_factory=Voice)
     story: bool = False
 
@@ -202,33 +212,9 @@ async def segment_audio(
     revisionId: str,
     user=Depends(principal),
 ):
-    store = request.app.state.store
-    _, revision = published(store, rid, revisionId)
-    b = revision["body"]
-    seg = next((s for s in b["segments"] if s["id"] == segment_id), None)
-    notice = scope_notice(b)
-    if notice and segment_id == notice["id"]:
-        seg = {**notice, "pronunciation": {}}
-    if not seg:
-        fail(404, "段落不存在")
-    path = store.root / "audio" / revision["id"] / f"{seg['id']}.wav"
-    if not path.is_file():
-        if b.get("ttsProfile", LEGACY_PROFILE) != render_profile():
-            fail(
-                409,
-                "此版本使用其他语音引擎；请在家长端重新试听并发布新版本，或恢复原引擎以继续生成",
-            )
-        text = seg["text"]
-        for src, dst in sorted(seg["pronunciation"].items(), key=lambda x: -len(x[0])):
-            if src:
-                text = text.replace(src, dst)
-        audio = await speech(
-            request, text, Voice.model_validate(b["voice"]), True, background=True
-        )
-        # 模型运行期间可能被撤回/删除，再验证后才落盘。
-        published(store, rid, revisionId)
-        store.write_content(path, audio)
-    data = path.read_bytes()
+    data = await request.app.state.audio_preparation.ensure(
+        request, rid, revisionId, segment_id
+    )
     return Response(
         data,
         media_type="audio/wav",
@@ -323,6 +309,22 @@ def named_read_request(text):
     return bool(re.match(r"^(?:please\s+)?read\s+", text.strip(), re.I))
 
 
+def effective_age(config):
+    profile = config["profile"]
+    baseline = date.fromisoformat(profile["baseline"])
+    today = datetime.now(ZoneInfo(config["policy"]["timezone"])).date()
+    return min(
+        18,
+        profile["ageAtBaseline"]
+        + max(
+            0,
+            today.year
+            - baseline.year
+            - ((today.month, today.day) < (baseline.month, baseline.day)),
+        ),
+    )
+
+
 def route(text):
     t = re.sub(r"[\s，。！？,.!?]", "", text).lower()
     if t in ("停", "停止", "停一下", "别说了", "stop", "暂停", "pause") or t.startswith(
@@ -408,6 +410,11 @@ async def execute_turn(body: Turn, request: Request, user):
     config = Config.model_validate(config).model_dump(mode="json")
     session_key = (user["id"], body.sessionId)
     prior = request.app.state.sessions.get(session_key, {})
+    if (
+        prior.get("knowledgeSeen")
+        and prior.get("knowledgeRevision") != request.app.state.knowledge.revision
+    ):
+        prior = {**prior, "history": []}
     templates = (
         prior.get("prompts", config["prompts"])
         if time.monotonic() - prior.get("at", 0) < 600
@@ -435,18 +442,7 @@ async def execute_turn(body: Turn, request: Request, user):
     if intent not in ("chat", "game") or original:
         request.app.state.games.pop(game_key, None)
     profile = config["profile"]
-    baseline = date.fromisoformat(profile["baseline"])
-    today = datetime.now(ZoneInfo(config["policy"]["timezone"])).date()
-    age = min(
-        18,
-        profile["ageAtBaseline"]
-        + max(
-            0,
-            today.year
-            - baseline.year
-            - ((today.month, today.day) < (baseline.month, baseline.day)),
-        ),
-    )
+    age = effective_age(config)
     performances = {"开心": "happy", "大笑": "laugh", "委屈": "hurt", "大哭": "cry"}
     if any(x in body.text for x in ("表演", "做个", "做一个")):
         for word, expression in performances.items():
@@ -592,6 +588,49 @@ async def execute_turn(body: Turn, request: Request, user):
         )
         if game_text:
             return {"action": "speak", "text": game_text}
+    knowledge_revision = request.app.state.knowledge.revision
+    # 已核对的知识直接答，不争抢对话模型槽；图像和视觉指代仍交给视觉路径。
+    if (
+        not original
+        and not body.image
+        and not body.visualRequest
+        and not (prior.get("vision") and refers_to_previous_object(body.text))
+    ):
+        from .knowledge import FOLLOWUPS, normalize, try_answer
+
+        known = try_answer(
+            request, body.text, age, prior, profile["expression"] == "simple"
+        )
+        if known:
+            sessions = request.app.state.sessions
+            now = time.monotonic()
+            for key in list(sessions):
+                if now - sessions[key]["at"] > 600:
+                    sessions.pop(key, None)
+            if len(sessions) >= 100 and session_key not in sessions:
+                sessions.pop(next(iter(sessions)))
+            history = prior.get("history", []) if now - prior.get("at", 0) < 600 else []
+            sessions[session_key] = {
+                "at": now,
+                "prompts": templates,
+                "knowledge": known.get("knowledge")
+                or (
+                    prior.get("knowledge")
+                    if normalize(body.text) in FOLLOWUPS
+                    else None
+                ),
+                "pendingKnowledge": known["candidates"][0]["id"]
+                if known["status"] == "clarify"
+                else None,
+                "knowledgeSeen": True,
+                "knowledgeRevision": knowledge_revision,
+                "history": [
+                    *history,
+                    {"role": "user", "content": body.text},
+                    {"role": "assistant", "content": known["text"]},
+                ][-10:],
+            }
+            return known
     memory_epoch = request.app.state.memory_epoch
     memory = [
         json.loads(r["body"])["content"]
@@ -611,13 +650,15 @@ async def execute_turn(body: Turn, request: Request, user):
     if profile["expression"] == "simple":
         system += " 保持幼儿能理解的短词短句，不随年龄增加难度。"
     if not config["proactive"] and not body.image:
-        system += " 回答到此为止，不主动追问、不邀请继续、不结尾提新问题。"
+        system += " 安静模式只限制主动发问，不限制回答的信息量。完整回答当前请求，不主动追问、不邀请继续、不结尾提新问题。"
     elif not config["proactive"]:
         system += " 只允许为了看清对象而询问必要的澄清问题，不邀请继续其他话题。"
     if not config["originalStories"]:
         system += " 不自编故事，故事请使用书架。"
     if original:
-        system += " 只编一个温和、无危险模仿的原创小故事，结尾收住，不加入恐吓、成人内容和操作建议。"
+        system += " 讲完一个有起因、经过和结局的温和原创故事，结尾收住，不加入恐吓、成人内容和危险操作建议。"
+    if not body.image:
+        system += "\n" + turn_guidance(body.text, story=original)
     if body.image:
         system = (
             expand(templates["visual"], config, age) + "\n" + vision_instructions(age)
@@ -706,15 +747,9 @@ async def execute_turn(body: Turn, request: Request, user):
                         "stream": False,
                         "think": False,
                         "keep_alive": "30m",
-                        "options": {
-                            "num_ctx": 4096,
-                            "num_predict": 256
-                            if body.image
-                            else 160
-                            if original
-                            else 96,
-                            "temperature": 0.4 if original else 0,
-                        },
+                        "options": generation_options(
+                            story=original, visual=bool(body.image)
+                        ),
                         "messages": [
                             {"role": "system", "content": system},
                             *([] if body.image else history),
@@ -735,13 +770,15 @@ async def execute_turn(body: Turn, request: Request, user):
                 visual_state = render_vision(raw, body.text)
                 text = visual_state["text"]
             else:
-                text = raw[:500]
+                text = raw
     except (httpx.HTTPError, KeyError, ValueError, TimeoutError):
         fail(503, "本地对话模型暂不可用")
     finally:
         request.app.state.dialogue_slots.release()
     if request.app.state.memory_epoch != memory_epoch:
         fail(409, "记忆已更新，本次旧回答已取消，请重新提问")
+    if request.app.state.knowledge.revision != knowledge_revision:
+        fail(409, "知识已更新，本次旧回答已取消，请重新提问")
     if not text:
         fail(503, "没有生成可朗读回答")
     # 输出有界；局部规则只是确定性底线，不宣称模型已完成儿童安全认证。
@@ -754,23 +791,27 @@ async def execute_turn(body: Turn, request: Request, user):
     text = re.sub(r"[\r\n]+", "。", text)
     sentences = [
         sentence
-        for sentence in re.findall(r"[^。！？.!?]+[。！？.!?]?", text)
+        for sentence in re.findall(r"[^。！？.!?]+[。！？.!?]?[”’\"]?", text)
         if re.search(r"[^\W_]", sentence, re.UNICODE)
     ]
     if not body.image and not config["proactive"] and len(sentences) > 1:
         sentences = quiet_sentences(sentences, body.text)
-    text = "".join(sentences[: (3 if original else 2)]).strip()
+    text = "".join(sentences[:2] if body.image else sentences).strip()
     if not re.search(r"[^\W_]", text, re.UNICODE):
         fail(503, "没有生成可朗读回答")
-    if len(text) > 120:
-        text = text[:119].rstrip("，,、 ") + "。"
+    text = bound_reply(
+        text,
+        120 if body.image else MAX_REPLY_CHARS - (len(STORY_PREFIX) if original else 0),
+    )
     if original:
-        text = "这是我编的小故事。" + text
+        text = STORY_PREFIX + text
     # 不存图片和未审核儿童信息到持久库；上下文10分钟自动淘汰。
     sessions[key] = {
         "at": now,
         "prompts": templates,
         "vision": visual_state,
+        "knowledgeSeen": prior.get("knowledgeSeen", False),
+        "knowledgeRevision": knowledge_revision,
         "history": [
             *history,
             {"role": "user", "content": body.text},

@@ -7,22 +7,23 @@ from collections import deque
 class PrioritySlot:
     def __init__(self, max_waiters=8):
         self._busy = False
-        self._waiting = (deque(), deque())
+        self._waiting = (deque(), deque(), deque())
         self.max_waiters = max_waiters
 
     def locked(self):
         return self._busy
 
-    async def acquire(self, *, background=False, timeout=10):
+    async def acquire(self, *, background=False, bulk=False, timeout=10):
         if not self._busy:
             self._busy = True
             return
         if sum(len(queue) for queue in self._waiting) >= self.max_waiters or (
-            background and len(self._waiting[1]) >= self.max_waiters // 2
+            (background or bulk)
+            and sum(len(q) for q in self._waiting[1:]) >= self.max_waiters // 2
         ):
             raise TimeoutError("语音等待队列已满")
         future = asyncio.get_running_loop().create_future()
-        queue = self._waiting[int(background)]
+        queue = self._waiting[2 if bulk else int(background)]
         queue.append(future)
         try:
             # shield让超时/取消与刚获得名额的竞态可判别，不能丢失名额。
