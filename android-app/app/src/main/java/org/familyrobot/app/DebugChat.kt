@@ -124,21 +124,42 @@ private suspend fun captureDebugVoice(keep:AtomicBoolean):ByteArray=withContext(
 
 }
 
-@Composable fun RecordsScreen(connection:JSONObject,debug:Boolean=false,back:()->Unit,play:(ByteArray)->Unit,bottom:(@Composable ()->Unit)?=null,openUsage:(()->Unit)?=null) {
+@Composable fun RecordsScreen(connection:JSONObject,debug:Boolean=false,back:()->Unit,play:(ByteArray)->Unit,bottom:(@Composable ()->Unit)?=null,openUsage:(()->Unit)?=null,openHistorySettings:(()->Unit)?=null) {
     val api=remember(connection){Api(connection)};val scope=rememberCoroutineScope();var rows by remember{mutableStateOf(JSONArray())};var busy by remember{mutableStateOf(false)};var message by remember{mutableStateOf("")};var remove by remember{mutableStateOf<String?>(null)}
     val context=LocalContext.current;val lifecycle=LocalLifecycleOwner.current.lifecycle
     var kind by rememberNavigationValue("records/$debug/kind",if(debug)"debug" else "companion");var selectedSession by remember{mutableStateOf<String?>(null)}
+    var historyPolicy by remember{mutableStateOf<JSONObject?>(null)}
+    var loaded by remember{mutableStateOf(false)}
     fun exit(){(context as? MainActivity)?.stopPreview();if(selectedSession!=null)selectedSession=null else back()}
-    fun launch(block:suspend ()->Unit){if(busy)return;scope.launch{busy=true;try{block()}catch(e:CancellationException){throw e}catch(e:Exception){message=e.message ?: "读取失败"}finally{busy=false}}}
-    suspend fun refresh(){rows=withContext(Dispatchers.IO){api.array("/v1/records?kind=$kind")}}
-    LaunchedEffect(kind){rows=JSONArray();selectedSession=null;launch{refresh()}}
+    fun launch(block:suspend ()->Unit){if(busy)return;scope.launch{busy=true;message="";try{block()}catch(e:CancellationException){throw e}catch(e:Exception){message=e.message ?: "读取失败"}finally{busy=false}}}
+    suspend fun refresh(){
+        val (records,policy)=withContext(Dispatchers.IO){
+            val records=api.array("/v1/records?kind=$kind")
+            val policy=if(kind=="companion")api.json("/v1/robots/${connection.getString("robotId")}/config").getJSONObject("config").getJSONObject("history") else null
+            records to policy
+        }
+        rows=records;historyPolicy=policy;loaded=true
+        if(selectedSession!=null && (0 until rows.length()).none{rows.getJSONObject(it).optString("session_id")==selectedSession})selectedSession=null
+    }
+    LaunchedEffect(api,kind){rows=JSONArray();historyPolicy=null;loaded=false;selectedSession=null;launch{refresh()}}
     DisposableEffect(api,lifecycle){val observer=LifecycleEventObserver{_,event->if(event==Lifecycle.Event.ON_STOP){scope.coroutineContext.cancelChildren();api.cancel();(context as? MainActivity)?.stopPreview()}};lifecycle.addObserver(observer);onDispose{api.cancel();(context as? MainActivity)?.stopPreview();lifecycle.removeObserver(observer)}}
     BackHandler{exit()}
     Page(if(selectedSession!=null)"会话详情" else if(debug)"调试记录" else "对话记录",message,busy,pageKey="records/$debug/$kind/${selectedSession ?: "list"}",onBack={exit()},bottom=if(selectedSession==null)bottom else null){
         if(!debug&&selectedSession==null)Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){FilterChip(kind=="companion",{kind="companion"},enabled=!busy,label={Text("陪伴对话")});FilterChip(kind=="debug",{kind="debug"},enabled=!busy,label={Text("调试会话")});if(openUsage!=null)TextButton(onClick=openUsage){Text("使用记录")}}
-        Text(if(debug)"仅显示这台管理设备的调试会话" else "默认不保存；启用后记录后续对话。这里显示请求及服务回答，不代表孩子已听完。",fontSize=12.sp)
+        if(kind=="companion"){
+            historyPolicy?.let{policy->Text(if(policy.optBoolean("enabled"))"陪伴对话保存已开启 · 保留 ${policy.optInt("days")} 天" else "陪伴对话保存未开启",fontSize=13.sp,fontWeight=FontWeight.Medium)}
+            Text("仅保存开启后的请求及服务回答，不代表孩子已听完。",fontSize=12.sp)
+            if(selectedSession==null && openHistorySettings!=null)TextButton(onClick=openHistorySettings,enabled=!busy){Text("记录保存设置")}
+        }else Text("仅显示这台管理设备的调试会话，与陪伴对话分开保存。",fontSize=12.sp)
         Row{Action("刷新",!busy){launch{refresh()}};TextButton(onClick={remove="all"},enabled=!busy&&rows.length()>0){Text("清空")}}
-        if(rows.length()==0)EmptyState("暂无记录","启用记录后只保存后续对话，不补录过去会话。")
+        if(rows.length()==0 && !busy){
+            if(message.isNotEmpty())EmptyState("记录读取失败","请检查家庭服务连接后点击刷新重试。")
+            else if(loaded)when{
+                kind=="debug"->EmptyState("暂无调试记录","在本手机发送调试消息后，可在这里查看。")
+                historyPolicy?.optBoolean("enabled")==true->EmptyState("暂无陪伴对话","请让孩子与机器人进行新的对话；记录会保留 ${historyPolicy?.optInt("days")} 天，可点击刷新查看。")
+                else->EmptyState("尚未保存陪伴对话","请进入记录保存设置，开启“保存后续陪伴对话”，并保存等待机器人应用。过去未保存的会话无法补录。")
+            }
+        }
         val sessions=(0 until rows.length()).map{rows.getJSONObject(it)}.groupBy{it.optString("session_id")}
         if(selectedSession==null && !debug && sessions.isNotEmpty())DesignGroup{sessions.entries.forEachIndexed{index,(id,turns)->DesignRow(turns.first().optString("question").take(40),"${turns.size} 条 · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date((turns.first().getDouble("created")*1000).toLong()))}",icon="chat",divider=index<sessions.size-1){selectedSession=id}}}
         for(i in 0 until rows.length()){val row=rows.getJSONObject(i);if(!debug&&row.optString("session_id")!=selectedSession)continue;Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){

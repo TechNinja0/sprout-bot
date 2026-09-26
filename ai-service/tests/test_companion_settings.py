@@ -81,6 +81,36 @@ def test_history_opt_in_retention_scope_delete(system):
     assert c.get("/v1/records", headers=ph).json() == []
 
 
+def test_companion_turns_visible_only_after_history_is_applied(system):
+    c, store, r, rh, p, ph = system
+    rid = r["deviceId"]
+
+    def ask(session):
+        response = c.post(
+            "/v1/turns",
+            headers=rh,
+            json={"sessionId": session, "text": "为什么会下雨"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["text"]
+        return response.json()["text"]
+
+    with patch("httpx.AsyncClient.post", side_effect=AssertionError("禁止调用模型")):
+        ask("history-disabled-session")
+        assert c.get("/v1/records?kind=companion", headers=ph).json() == []
+        activate(c, rid, rh, ph, {"history": {"enabled": True, "days": 30}})
+        answer = ask("history-enabled-session")
+        rows = c.get("/v1/records?kind=companion", headers=ph).json()
+        assert len(rows) == 1
+        assert rows[0]["session_id"] == "history-enabled-session"
+        assert rows[0]["question"] == "为什么会下雨"
+        assert rows[0]["answer"] == answer
+        assert c.get("/v1/records?kind=debug", headers=ph).json() == []
+        activate(c, rid, rh, ph, {"history": {"enabled": False, "days": 30}})
+        ask("history-disabled-again")
+        assert c.get("/v1/records?kind=companion", headers=ph).json() == rows
+
+
 def test_debug_draft_no_child_side_effects(system):
     c, store, r, rh, p, ph = system
     templates = c.get("/v1/prompts/defaults", headers=ph).json()

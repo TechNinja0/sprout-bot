@@ -337,7 +337,7 @@ class MainActivity:ComponentActivity() {
         if(tab=="连接"){ParentConnectionScreen(connection,{back()},disconnect);return}
         if(tab=="调试"){ParentDiagnosticsScreen(connection,{back()},{playPreview(it)});return}
         if(tab=="清单" || tab=="记忆"){ParentCollectionScreen(connection,tab,{back()},{selectTab(it)});return}
-        if(tab=="记录"){RecordsScreen(connection,back={selectTab("首页")},play={playPreview(it)},bottom={ParentNavigation(tab){selectTab(it)}},openUsage={selectTab("摘要")});return}
+        if(tab=="记录"){RecordsScreen(connection,back={selectTab("首页")},play={playPreview(it)},bottom={ParentNavigation(tab){selectTab(it)}},openUsage={selectTab("摘要")},openHistorySettings={selectTab("记录保存")});return}
         var recovery by remember { mutableStateOf("") }
         var restoreUri by remember{mutableStateOf<Uri?>(null)}
         val restore=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null){restoreUri=uri;message="已选择备份文件，请填写管理员恢复凭据后校验恢复"} }
