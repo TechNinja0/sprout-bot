@@ -31,6 +31,7 @@ class FaceRenderingTest {
         val device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val output=File(context.filesDir,"face-gallery").apply { mkdirs() }
         val feedback=mutableStateOf(faceFeedback("standby"))
+        val reduced=mutableStateOf(true)
         try {
             ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java)).use { scenario ->
                 for((orientation,label) in listOf(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT to "portrait",ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE to "landscape")) {
@@ -38,9 +39,9 @@ class FaceRenderingTest {
                     scenario.onActivity { activity ->
                         activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         WindowCompat.getInsetsController(activity.window,activity.window.decorView).hide(WindowInsetsCompat.Type.systemBars())
-                        activity.setContent { RobotFace(feedback.value.mode,if(feedback.value.signal in setOf(FaceSignal.SPEAK,FaceSignal.WAKE))1f else 0f,true,{},{},{},feedback=feedback.value) }
+                        activity.setContent { RobotFace(feedback.value.mode,if(feedback.value.signal in setOf(FaceSignal.SPEAK,FaceSignal.WAKE))1f else 0f,reduced.value,{},{},{},feedback=feedback.value) }
                     }
-                    for(mode in listOf("standby","waking","listening","hearing","recognizing","thinking","vision","preparing","loading","speaking","song","story","paused","fault","muted","blocked","happy","laugh","hurt","cry","rest")) {
+                    for(mode in listOf("standby","waking","listening","hearing","recognizing","thinking","vision","preparing","loading","speaking","song","story","paused","fault","muted","blocked","locked_schedule","locked_quota","happy","laugh","hurt","cry","rest")) {
                         scenario.onActivity { feedback.value=faceFeedback(mode) }
                         Thread.sleep(250)
                         // Android 36 在连续更新 Compose 文本时可能仍返回上一次的节点缓存。
@@ -64,6 +65,24 @@ class FaceRenderingTest {
                 assertTrue(device.hasObject(By.text("等待有点久")))
                 assertTrue(device.hasObject(By.textContains("已等待 35 秒")))
                 assertTrue(device.takeScreenshot(File(output,"landscape-delayed.png")))
+                scenario.onActivity { feedback.value=faceFeedback("standby");reduced.value=false }
+                Thread.sleep(300)
+                val automation=InstrumentationRegistry.getInstrumentation().uiAutomation
+                var first:android.graphics.Bitmap?=null
+                var changed=false
+                repeat(18) { index ->
+                    val frame=automation.takeScreenshot()!!
+                    File(output,"sleep-frame-%02d.png".format(index)).outputStream().use { frame.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }
+                    if(first==null)first=frame else { changed=changed || !first!!.sameAs(frame);frame.recycle() }
+                    Thread.sleep(200)
+                }
+                first?.recycle()
+                assertTrue("普通睡眠必须有实际帧变化",changed)
+                scenario.onActivity { reduced.value=true };Thread.sleep(300)
+                val still=automation.takeScreenshot()!!;Thread.sleep(700)
+                val later=automation.takeScreenshot()!!
+                assertTrue("减少动态效果时睡眠保持静态",still.sameAs(later))
+                still.recycle();later.recycle()
                 scenario.onActivity { it.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
             }
         } finally { if(identity==null)vault.remove("identity") else vault.save("identity",identity) }

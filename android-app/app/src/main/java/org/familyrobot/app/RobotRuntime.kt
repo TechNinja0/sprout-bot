@@ -218,6 +218,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         val presentationMode=when {
             cameraWarningPlaying -> "speaking"
             session.state==SessionState.BLOCKED && allowed==Permission.UNTRUSTED_TIME && !online -> "fault"
+            session.state==SessionState.BLOCKED -> restrictedFaceFeedback(allowed)?.mode ?: "blocked"
             session.state==SessionState.STANDBY && (!online || !has(Manifest.permission.RECORD_AUDIO)) -> "fault"
             session.state in setOf(SessionState.LISTENING,SessionState.FOLLOW_UP) && !input.recording -> "fault"
             session.mediaPlaying && !outputPlaying -> "loading"
@@ -231,6 +232,7 @@ class RobotRuntime(private val activity:ComponentActivity,val vault:Vault,val co
         faceFeedback=feedbackTracker.present(presentationMode,session.generation,now,playbackPosition).let { feedback ->
             when {
                 thermal -> org.familyrobot.core.faceFeedback("blocked").copy(title="设备需要降温",detail="温度恢复后再来聊天")
+                feedback.signal==FaceSignal.LOCK -> restrictedFaceFeedback(allowed) ?: feedback
                 feedback.signal==FaceSignal.ERROR && !feedbackTracker.hasFailure(session.generation) -> feedback.copy(
                     title=if(!online)"家庭服务未连接" else "暂时听不到你",
                     detail=if(!online)"请检查网络和家庭服务" else "请在家长管理中检查麦克风")

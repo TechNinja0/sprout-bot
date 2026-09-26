@@ -13,8 +13,9 @@ internal fun faceAccent(signal:FaceSignal)=when(signal) {
     FaceSignal.RECOGNIZE,FaceSignal.THINK,FaceSignal.LOOK -> Color(0xFFC0B5FF)
     FaceSignal.SPEAK,FaceSignal.PLAYFUL -> Color(0xFFA3F1D2)
     FaceSignal.WAIT,FaceSignal.PAUSE -> Color(0xFFFFCF87)
-    FaceSignal.ERROR -> Color(0xFFFFAE96)
-    FaceSignal.MUTED,FaceSignal.LOCK -> Color(0xFFADBAC9)
+    FaceSignal.ERROR -> Color(0xFFFFD4C8)
+    FaceSignal.LOCK -> Color(0xFFB8B5EB)
+    FaceSignal.MUTED -> Color(0xFFADBAC9)
 }
 
 /** 大轮廓提示在远处也可识别；动画仅表达阶段，不伪造语音输入音量。 */
@@ -22,11 +23,12 @@ internal fun DrawScope.drawAttention(signal:FaceSignal,center:Offset,u:Float,tim
     val cx=center.x;val cy=center.y
     when(signal) {
         FaceSignal.SLEEP -> {
-            val rise=if(reduced)0f else sin(time*.9f)*u*.012f
             for(i in 0..2) {
-                val x=cx+u*(.25f+i*.055f);val y=cy-u*(.15f+i*.07f)+rise
-                val w=u*(.032f+i*.007f)
-                drawPath(Path().apply { moveTo(x,y);lineTo(x+w,y);lineTo(x,y+w);lineTo(x+w,y+w) },color.copy(alpha=.45f+i*.18f),style=Stroke(u*.007f,cap=StrokeCap.Round,join=StrokeJoin.Round))
+                val phase=if(reduced)i/3f else (time/3.6f+i/3f)%1f
+                val x=cx+u*(.27f+phase*.1f);val y=cy-u*(.1f+phase*.22f)
+                val w=u*(.027f+phase*.024f)
+                val alpha=if(reduced).65f else (sin(phase*PI).toFloat()*.75f).coerceIn(0f,1f)
+                drawPath(Path().apply { moveTo(x,y);lineTo(x+w,y);lineTo(x,y+w);lineTo(x+w,y+w) },color.copy(alpha=alpha),style=Stroke(u*.007f,cap=StrokeCap.Round,join=StrokeJoin.Round))
             }
         }
         FaceSignal.LISTEN,FaceSignal.HEAR -> {
@@ -61,9 +63,20 @@ internal fun DrawScope.drawAttention(signal:FaceSignal,center:Offset,u:Float,tim
             }
         }
         FaceSignal.ERROR -> {
-            val y=cy-u*.29f
-            drawLine(color,Offset(cx,y-u*.038f),Offset(cx,y+u*.01f),u*.016f,StrokeCap.Round)
-            drawCircle(color,u*.009f,Offset(cx,y+u*.039f))
+            val x=cx+u*.31f;val y=cy-u*.15f+(if(reduced)0f else sin(time*1.3f)*u*.008f)
+            drawPath(Path().apply {
+                moveTo(x,y-u*.04f)
+                cubicTo(x-u*.04f,y+u*.007f,x-u*.03f,y+u*.04f,x,y+u*.04f)
+                cubicTo(x+u*.03f,y+u*.04f,x+u*.04f,y+u*.007f,x,y-u*.04f)
+            },Color(0xFF9CDAE5).copy(alpha=.8f))
+        }
+        FaceSignal.LOCK -> {
+            val x=cx;val y=cy-u*.28f
+            drawRoundRect(color.copy(alpha=.10f),Offset(x-u*.10f,y-u*.105f),Size(u*.20f,u*.21f),CornerRadius(u*.05f))
+            drawArc(color,180f,180f,false,Offset(x-u*.04f,y-u*.073f),Size(u*.08f,u*.10f),style=Stroke(u*.012f,cap=StrokeCap.Round))
+            drawRoundRect(color,Offset(x-u*.065f,y-u*.01f),Size(u*.13f,u*.09f),CornerRadius(u*.017f))
+            drawCircle(Color(0xFF222B46),u*.009f,Offset(x,y+u*.023f))
+            drawLine(Color(0xFF222B46),Offset(x,y+u*.027f),Offset(x,y+u*.048f),u*.01f,StrokeCap.Round)
         }
         FaceSignal.SPEAK -> {
             val strength=mouth.coerceIn(0f,1f)
@@ -137,9 +150,9 @@ internal fun DrawScope.drawFaceSignal(signal:FaceSignal,color:Color,time:Float,r
         }
         FaceSignal.PAUSE -> for(side in listOf(-1,1))drawRoundRect(color,c+Offset(side*r*.5f-u*.045f,-r),Size(u*.09f,r*2),CornerRadius(u*.03f))
         FaceSignal.ERROR -> {
-            drawPath(Path().apply { moveTo(c.x,c.y-r);lineTo(c.x+r*1.15f,c.y+r);lineTo(c.x-r*1.15f,c.y+r);close() },color,style=stroke)
-            line(c+Offset(0f,-r*.3f),c+Offset(0f,r*.25f))
-            drawCircle(color,u*.035f,c+Offset(0f,r*.62f))
+            drawArc(color,-50f,285f,false,c-Offset(r,r),Size(r*2,r*2),style=stroke)
+            val end=c+Offset(cos(235f*PI.toFloat()/180f),sin(235f*PI.toFloat()/180f))*r
+            drawPath(Path().apply { moveTo(end.x-r*.08f,end.y+r*.5f);lineTo(end.x,end.y);lineTo(end.x+r*.49f,end.y+r*.10f) },color,style=stroke)
         }
         FaceSignal.LOCK -> {
             drawRoundRect(color,c+Offset(-r*.75f,-r*.15f),Size(r*1.5f,r*1.2f),CornerRadius(u*.07f),style=stroke)
@@ -151,6 +164,38 @@ internal fun DrawScope.drawFaceSignal(signal:FaceSignal,color:Color,time:Float,r
                 cubicTo(c.x-r*2,c.y-r*.25f,c.x-r*.5f,c.y-r*1.8f,c.x,c.y-r*.5f)
                 cubicTo(c.x+r*.5f,c.y-r*1.8f,c.x+r*2,c.y-r*.25f,c.x,c.y+r)
             },color,style=stroke)
+        }
+    }
+}
+
+/** 安静的睡眠口水：拉长再收回，不产生外放声音；减少动态效果时保留静态小水滴。 */
+internal fun DrawScope.drawSleepDrool(origin:Offset,u:Float,time:Float,reduced:Boolean) {
+    val phase=if(reduced).45f else (sin(time*1.5f-1f)+1f)/2
+    val length=u*(.035f+phase*.022f)
+    val x=origin.x;val y=origin.y;val w=u*.012f
+    drawPath(Path().apply {
+        moveTo(x-w*.6f,y)
+        cubicTo(x-w*.6f,y+length*.45f,x-w*1.4f,y+length*.6f,x-w,y+length)
+        cubicTo(x-w,y+length+w,x+w,y+length+w,x+w,y+length)
+        cubicTo(x+w*1.4f,y+length*.6f,x+w*.6f,y+length*.45f,x+w*.6f,y)
+        close()
+    },Color(0xFF94DAE8).copy(alpha=.9f))
+    drawLine(Color(0xFFE3FBFF).copy(alpha=.65f),Offset(x-w*.25f,y+length*.65f),Offset(x-w*.25f,y+length*.85f),u*.003f,StrokeCap.Round)
+}
+
+internal fun DrawScope.drawLockReason(mode:String,center:Offset,u:Float,color:Color) {
+    val c=center+Offset(-u*.19f,-u*.28f)
+    when(mode) {
+        "locked_schedule" -> {
+            drawCircle(color,u*.043f,c)
+            drawCircle(Color(0xFF07141C),u*.038f,c+Offset(u*.022f,-u*.012f))
+            drawCircle(color.copy(alpha=.65f),u*.006f,c+Offset(u*.055f,-u*.045f))
+        }
+        "locked_quota" -> {
+            drawCircle(color,u*.046f,c,style=Stroke(u*.007f))
+            drawPath(Path().apply { moveTo(c.x,c.y-u*.025f);lineTo(c.x,c.y);lineTo(c.x+u*.025f,c.y) },color,style=Stroke(u*.007f,cap=StrokeCap.Round))
+            // 已用完的日额度：三段完整刻度，不使用会让孩子误以为还在等待的进度动画。
+            for(i in 0..2)drawRoundRect(color.copy(alpha=.8f),center+Offset(u*(.14f+i*.024f),-u*.30f),Size(u*.016f,u*.04f),CornerRadius(u*.004f))
         }
     }
 }

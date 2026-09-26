@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -34,13 +35,16 @@ import kotlin.math.sin
     val onTouch by rememberUpdatedState(interact)
     val onStop by rememberUpdatedState(stop)
     val onManage by rememberUpdatedState(manage)
-    val restMode=mode in setOf("standby","rest","muted","blocked")
+    val sleeping=mode in setOf("standby","rest")
+    val locked=feedback.signal==FaceSignal.LOCK
+    val shy=mode=="fault"
+    val restMode=sleeping || locked || mode=="muted"
     val processing=mode in setOf("thinking","recognizing","vision","preparing","loading")
     val color=faceAccent(feedback.signal)
     val attentive=mode in setOf("waking","listening","hearing")
     val eyeScale by animateFloatAsState(when {
         restMode -> .01f
-        mode=="fault" -> .14f
+        shy -> .16f
         mode=="paused" -> .09f
         processing -> .13f
         mode=="waking" -> .31f
@@ -62,23 +66,27 @@ import kotlin.math.sin
             drawRect(Color(0xFF07141C))
             val cx=size.width/2;val cy=size.height*0.46f;val u=minOf(size.width,size.height)
             val rest=restMode;val thinking=processing;val happy=mode in setOf("happy","laugh","song","pet","tickle")
-            val sad=mode in setOf("hurt","cry");val closed=rest || mode in setOf("laugh","cry") || (mode=="pet" && time<.6f) || (mode=="tickle" && time<.85f) || (!reducedMotion && time%5.8f>5.65f)
+            val sad=mode in setOf("hurt","cry");val closed=rest || shy || mode in setOf("laugh","cry") || (mode=="pet" && time<.6f) || (mode=="tickle" && time<.85f) || (!reducedMotion && time%5.8f>5.65f)
             drawCircle(Brush.radialGradient(listOf(color.copy(alpha=if(rest).025f else .09f),Color.Transparent),Offset(cx,cy),u*.65f),u*.65f,Offset(cx,cy))
             drawAttention(feedback.signal,Offset(cx,cy),u,time,reducedMotion,mouth,color)
+            if(locked)drawLockReason(mode,Offset(cx,cy),u,color)
             val sway=when {
                 reducedMotion -> 0f
                 mode=="tickle" && time<1.1f -> sin(time*10f)*2.5f
                 mode=="pet" && time<1.1f -> sin(time*3f)*2f
                 mode=="song" -> sin(time*2.4f)*3*mouth
+                shy -> 2f+sin(time*1.3f)*.7f
                 else -> tilt
             }
+            val breath=if(reducedMotion)0f else sin(time*1.5f)
+            translate(top=if(sleeping)breath*u*.009f else 0f) {
             rotate(sway,Offset(cx,cy)) {
                 for(sign in listOf(-1,1)) {
                     val x=cx+sign*u*0.22f
                     val eyeW=u*(if(thinking).21f else .185f)
-                    val eyeH=u*eyeScale*(if(mode=="fault" && sign==1).65f else 1f)
+                    val eyeH=u*eyeScale
                     if(closed) {
-                        val curve=if(mode in setOf("laugh","pet","tickle"))-u*.055f else if(mode=="cry")u*.035f else if(mode=="blocked")u*.025f else 0f
+                        val curve=if(shy)-u*.045f else if(mode in setOf("laugh","pet","tickle"))-u*.055f else if(mode=="cry")u*.035f else if(sleeping || locked)u*.036f else 0f
                         drawPath(Path().apply { moveTo(x-eyeW/2,cy);quadraticTo(x,cy+curve,x+eyeW/2,cy) },color,style=Stroke(u*.018f,cap=StrokeCap.Round))
                     } else {
                         drawRoundRect(Brush.verticalGradient(listOf(color,color.copy(alpha=.68f)),cy-eyeH/2,cy+eyeH/2),Offset(x-eyeW/2,cy-eyeH/2),Size(eyeW,eyeH),CornerRadius(eyeW*(if(thinking || mode=="paused").18f else .48f)))
@@ -89,11 +97,17 @@ import kotlin.math.sin
                         drawCircle(Color(0xFFE2FFFF),minOf(u*.019f,pupilH*.24f),Offset(x-u*.018f+gazeX,cy-pupilH*.26f+gazeY))
                     }
                     val browY=cy-eyeH/2-u*(if(mode=="waking" || mode=="hearing").075f else .05f)
-                    if(!rest && mode!="standby") {
-                        val tilt=when { mode=="fault" -> -sign*u*.035f;sad -> sign*u*.038f*emotionStrength;thinking && sign==1 -> u*.032f;happy -> -u*.02f;else -> 0f }
+                    if(!rest && !shy) {
+                        val tilt=when { sad -> sign*u*.038f*emotionStrength;thinking && sign==1 -> u*.032f;happy -> -u*.02f;else -> 0f }
                         drawPath(Path().apply { moveTo(x-eyeW*.35f,browY-tilt);quadraticTo(x,browY-u*.018f,x+eyeW*.35f,browY+tilt) },color.copy(alpha=.7f),style=Stroke(u*.012f,cap=StrokeCap.Round))
                     }
                     if(happy || mode=="listening")drawOval(Color(0xFF7DC3B9).copy(alpha=.28f),Offset(x-eyeW*.45f,cy+u*.16f),Size(eyeW*.9f,u*.026f))
+                    if(shy) {
+                        val blush=Color(0xFFFF94B3)
+                        val cheek=Offset(x,cy+u*.09f)
+                        drawOval(blush.copy(alpha=.4f),cheek-Offset(u*.075f,u*.028f),Size(u*.15f,u*.056f))
+                        for(i in -1..1)drawLine(blush.copy(alpha=.85f),cheek+Offset(u*(i*.032f-.007f),-u*.012f),cheek+Offset(u*(i*.032f+.007f),u*.012f),u*.006f,StrokeCap.Round)
+                    }
                     if(mode=="cry") {
                         val drop=if(reducedMotion).05f else ((time*0.35f)%0.16f)
                         drawOval(Color(0xFF7ABEEB).copy(alpha=emotionStrength),Offset(x+sign*u*.07f-u*.013f,cy+u*.05f+u*drop*emotionStrength),Size(u*.026f,u*.058f*emotionStrength))
@@ -102,15 +116,24 @@ import kotlin.math.sin
                 // 横屏给下方状态符号留出明确间距，最大张嘴时也不与提示重叠。
                 val y=cy+u*(if(compact).18f else .235f)
                 when {
+                    sleeping && mouth<=.04f -> {
+                        val h=u*(.043f+breath*.008f)
+                        drawOval(color,Offset(cx-u*.037f,y-u*.006f),Size(u*.074f,h),style=Stroke(u*.009f))
+                        drawSleepDrool(Offset(cx+u*.03f,y+h*.55f),u,time,reducedMotion)
+                    }
+                    shy -> drawPath(Path().apply {
+                        moveTo(cx-u*.043f,y);quadraticTo(cx,y+u*.035f,cx+u*.043f,y)
+                    },color,style=Stroke(u*.011f,cap=StrokeCap.Round))
                     mode in setOf("speaking","story","song","waking","pet","tickle","rest","thinking","vision") && mouth>.04f -> drawOval(color,Offset(cx-u*.075f,y),Size(u*.15f,u*(.02f+mouth*(if(compact).09f else .13f))))
                     mode=="laugh" -> { drawOval(color,Offset(cx-u*.09f,y-u*.01f),Size(u*.18f,u*.13f));drawOval(Color(0xFF10242E),Offset(cx-u*.063f,y+u*.01f),Size(u*.126f,u*.072f)) }
                     mode=="cry" -> drawOval(color,Offset(cx-u*.06f,y-u*.015f),Size(u*.12f,u*.1f*emotionStrength))
                     mode=="vision" -> drawOval(color,Offset(cx-u*.025f,y),Size(u*.05f,u*.06f),style=Stroke(u*.012f))
                     else -> {
-                        val bend=when { rest || mode=="paused" -> 0f;mode=="fault" -> -u*.04f;thinking -> .005f*u;sad -> -u*.045f*emotionStrength;happy -> u*.1f;mode=="listening" -> u*.02f;else -> u*.05f }
+                        val bend=when { locked -> u*.045f;rest || mode=="paused" -> 0f;thinking -> .005f*u;sad -> -u*.045f*emotionStrength;happy -> u*.1f;mode=="listening" -> u*.02f;else -> u*.05f }
                         drawPath(Path().apply { moveTo(cx-u*.09f,y);quadraticTo(cx,y+bend,cx+u*.09f,y) },color,style=Stroke(u*.013f,cap=StrokeCap.Round))
                     }
                 }
+            }
             }
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()

@@ -2,8 +2,41 @@ package org.familyrobot.core
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.Instant
+import java.time.LocalTime
 
 class FaceFeedbackTest {
+    @Test fun scheduledRestAndDailyLimitHaveDistinctLockedFacesAndRejectWake() {
+        val day=Instant.parse("2026-09-26T02:00:00Z").toEpochMilli()
+        val night=Instant.parse("2026-09-26T13:00:00Z").toEpochMilli()
+        val policy=UsagePolicy(dailyMinutes=15)
+        val scheduled=PolicyEngine.permission(policy,night,0)
+        val quota=PolicyEngine.permission(policy,day,15*60000L)
+        assertEquals("locked_schedule",restrictedFaceFeedback(scheduled)!!.mode)
+        assertEquals("locked_quota",restrictedFaceFeedback(quota)!!.mode)
+        for(reason in listOf(scheduled,quota)) {
+            val face=restrictedFaceFeedback(reason)!!
+            assertEquals(FaceSignal.LOCK,face.signal)
+            assertFalse(face.detail.contains("唤醒"))
+            val session=Session();session.configure(reason==Permission.ALLOWED,false,true)
+            assertNull(session.wake(0,true))
+            assertEquals(SessionState.BLOCKED,session.state)
+        }
+        assertNull(restrictedFaceFeedback(PolicyEngine.permission(policy,day,0)))
+        assertNull(restrictedFaceFeedback(PolicyEngine.permission(policy.copy(overrideUntilMs=night+60000),night,0)))
+        // 家长也可以设置白天休息，不把所有限制时段都叫作“晚上”。
+        val midday=policy.copy(intervals=listOf(QuietInterval((1..7).toSet(),LocalTime.of(9,0),LocalTime.of(11,0))))
+        assertEquals("休息时间到了",restrictedFaceFeedback(PolicyEngine.permission(midday,day,0))!!.title)
+    }
+
+    @Test fun oldErrorCannotReplaceScheduledOrQuotaLock() {
+        val tracker=FaceFeedbackTracker();tracker.fail(7,"服务正忙")
+        for(mode in listOf("locked_schedule","locked_quota")) {
+            assertEquals(FaceSignal.LOCK,tracker.present(mode,7,0).signal)
+        }
+        assertEquals(FaceSignal.ERROR,faceFeedback("fault").signal)
+        assertNotEquals(restrictedFaceFeedback(Permission.MANUAL)!!.title,restrictedFaceFeedback(Permission.QUOTA)!!.title)
+    }
     @Test fun stalledAudioWarnsWithoutMistakingLongPlaybackForFailure() {
         val tracker=FaceFeedbackTracker()
         tracker.present("story",1,0,0)
